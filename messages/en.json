@@ -21,6 +21,7 @@
     "notifications": "Notifications",
     "contacts": "Contacts",
     "pipelines": "Pipelines",
+    "orders": "Orders",
     "broadcasts": "Broadcasts",
     "automations": "Automations",
     "flows": "Flows",
@@ -59,6 +60,38 @@
   },
   "ModeToggle": {
     "switchMode": "Switch to {mode} mode"
+  },
+  "Orders": {
+    "page": {
+      "title": "Orders",
+      "subtitle": "{count} orders synced from Dropi",
+      "subtitleZero": "No orders synced yet",
+      "searchPlaceholder": "Search by customer, city, Dropi order ID...",
+      "statusFilterLabel": "Status",
+      "allStatuses": "All statuses",
+      "syncNowBtn": "Sync now",
+      "syncing": "Syncing...",
+      "backfillBtn": "Import full history",
+      "backfilling": "Importing...",
+      "backfillSuccess": "Imported {count} orders from Dropi's full history.",
+      "lastSynced": "Last synced {time}",
+      "neverSynced": "Never synced",
+      "notConfiguredTitle": "Dropi isn't connected yet",
+      "notConfiguredDesc": "Connect your Dropi integration key in Settings to start syncing orders.",
+      "goToSettings": "Go to Settings",
+      "tableColumns": {
+        "dropiOrderId": "Dropi ID",
+        "customer": "Customer",
+        "city": "City",
+        "status": "Status",
+        "total": "Total",
+        "carrier": "Carrier",
+        "syncedAt": "Synced"
+      },
+      "loading": "Loading orders...",
+      "noOrdersYet": "No orders yet — they'll appear here once Dropi sync is on.",
+      "noOrdersMatch": "No orders match your search."
+    }
   },
   "Dashboard": {
     "page": {
@@ -1525,6 +1558,7 @@
       "quick-replies": "Quick replies",
       "fields": "Fields & tags",
       "deals": "Deals & currency",
+      "dropi": "Dropi",
       "members": "Team members",
       "api": "API keys"
     },
@@ -1686,6 +1720,39 @@
       "saveSuccess": "AI assistant saved.",
       "saveFailed": "Failed to save.",
       "removeSuccess": "AI configuration removed.",
+      "removeFailed": "Failed to remove."
+    },
+    "dropiConfig": {
+      "title": "Dropi",
+      "description": "Connect your Dropi integration key to sync orders into the CRM and optionally notify customers by WhatsApp when a status changes.",
+      "adminOnlyConfig": "Only admins and owners can change the Dropi configuration.",
+      "loading": "Loading Dropi configuration...",
+      "loadFailed": "Failed to load Dropi configuration",
+      "connection": "Connection",
+      "encryptionNotice": "Your key is encrypted at rest (AES-256-GCM) and never shown again after saving.",
+      "integrationKey": "Integration key",
+      "integrationKeyPlaceholder": "dropi-integration-key",
+      "keyHint": "From Dropi → Integrations, or issued by Dropi's team for your platform.",
+      "testConnection": "Test connection",
+      "testSuccess": "Connected — Dropi returned {count} departments.",
+      "testRejected": "Dropi rejected the key.",
+      "testNetworkError": "Could not reach Dropi.",
+      "lastSynced": "Last synced: {time}",
+      "behaviour": "Behaviour",
+      "behaviourDesc": "Two independent switches, both off by default — turning sync on never sends a message on its own.",
+      "enableSync": "Sync orders",
+      "enableSyncDesc": "Master switch. Off = nothing is read from Dropi at all.",
+      "enableNotify": "Notify customers on status change",
+      "enableNotifyDesc": "Off = orders still sync and show up here, but no WhatsApp message goes out. Only fires on a change to an order already synced, never on the first import.",
+      "templateName": "WhatsApp template name",
+      "templateNameDesc": "An approved WhatsApp template used for the status-change message.",
+      "templateNamePlaceholder": "order_status_update",
+      "remove": "Disconnect",
+      "save": "Save",
+      "missingKey": "Enter your Dropi integration key.",
+      "saveSuccess": "Dropi configuration saved.",
+      "saveFailed": "Failed to save.",
+      "removeSuccess": "Dropi disconnected.",
       "removeFailed": "Failed to remove."
     },
     "aiKnowledge": {
