@@ -157,7 +157,12 @@ export default function OrdersPage() {
     }
   }
 
-  const notConfigured = config === null;
+  // `config` is `undefined` only until the initial fetchConfig()
+  // resolves. Without this guard, an account that has never connected
+  // Dropi briefly renders the search/filter/table (with a spinner)
+  // instead of the "not connected" prompt during that first fetch.
+  const configLoading = config === undefined;
+  const notConfigured = !configLoading && config === null;
 
   return (
     <div className="space-y-6">
@@ -209,7 +214,11 @@ export default function OrdersPage() {
         )}
       </div>
 
-      {notConfigured ? (
+      {configLoading ? (
+        <div className="flex items-center justify-center py-16">
+          <Loader2 className="size-6 animate-spin text-primary" />
+        </div>
+      ) : notConfigured ? (
         <div className="flex flex-col items-center gap-3 rounded-lg border border-dashed border-border py-16 text-center">
           <Package className="size-8 text-muted-foreground" />
           <p className="font-medium text-foreground">{t('notConfiguredTitle')}</p>

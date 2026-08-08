@@ -84,31 +84,45 @@ export async function syncAccountDropiOrders(
     return result // sync is off — do nothing, not even a read
   }
 
-  const integrationKey = decrypt(config.integration_key as string)
+  // Atomic claim: if another sync for this account is already running
+  // (the cron and a manual "Sync now" click landing at the same
+  // moment), this returns false and we exit without doing any work —
+  // prevents both from reading the same pre-change status and each
+  // firing a duplicate customer notification. See migration 038.
+  const { data: claimed } = await db.rpc('claim_dropi_sync', {
+    p_account_id: accountId,
+  })
+  if (!claimed) return result
 
-  let orders: DropiOrder[]
   try {
-    orders = await listMyOrders({ integrationKey, resultNumber: 50 })
-  } catch (err) {
-    result.error = err instanceof Error ? err.message : 'unknown Dropi API error'
-    console.error(`[dropi/sync] listMyOrders failed for account ${accountId}:`, result.error)
+    const integrationKey = decrypt(config.integration_key as string)
+
+    let orders: DropiOrder[]
+    try {
+      orders = await listMyOrders({ integrationKey, resultNumber: 50 })
+    } catch (err) {
+      result.error = err instanceof Error ? err.message : 'unknown Dropi API error'
+      console.error(`[dropi/sync] listMyOrders failed for account ${accountId}:`, result.error)
+      return result
+    }
+    result.fetched = orders.length
+
+    for (const order of orders) {
+      await upsertOneOrder(db, accountId, order, result, {
+        notifyEnabled: config.notify_customers_enabled,
+        notifyTemplateName: config.notify_template_name,
+      })
+    }
+
     return result
+  } finally {
+    // Always release, success or failure — an uncaught throw must not
+    // leave the account permanently locked out of future syncs.
+    await db
+      .from('dropi_config')
+      .update({ last_synced_at: new Date().toISOString(), syncing: false })
+      .eq('account_id', accountId)
   }
-  result.fetched = orders.length
-
-  for (const order of orders) {
-    await upsertOneOrder(db, accountId, order, result, {
-      notifyEnabled: config.notify_customers_enabled,
-      notifyTemplateName: config.notify_template_name,
-    })
-  }
-
-  await db
-    .from('dropi_config')
-    .update({ last_synced_at: new Date().toISOString() })
-    .eq('account_id', accountId)
-
-  return result
 }
 
 /**
@@ -146,15 +160,21 @@ async function upsertOneOrder(
   if (upsertError || !upserted) return
   result.upserted++
 
+  let statusEventId: string | null = null
   if (existing && statusChanged) {
     result.statusChanges++
-    await db.from('order_status_events').insert({
-      order_id: upserted.id,
-      account_id: accountId,
-      from_status: existing.status,
-      to_status: order.status,
-      customer_notified: false,
-    })
+    const { data: event } = await db
+      .from('order_status_events')
+      .insert({
+        order_id: upserted.id,
+        account_id: accountId,
+        from_status: existing.status,
+        to_status: order.status,
+        customer_notified: false,
+      })
+      .select('id')
+      .single()
+    statusEventId = event?.id ?? null
   }
 
   // Notifications: only on a genuine status change to a pre-existing
@@ -182,11 +202,16 @@ async function upsertOneOrder(
         templateParams: [order.status],
       })
       result.notified++
-      await db
-        .from('order_status_events')
-        .update({ customer_notified: true })
-        .eq('order_id', upserted.id)
-        .eq('to_status', order.status)
+      // Update the exact event row this send corresponds to — matching
+      // by (order_id, to_status) instead would also touch any earlier
+      // event for the same order+status whose send actually failed,
+      // mislabeling it as notified in the audit trail.
+      if (statusEventId) {
+        await db
+          .from('order_status_events')
+          .update({ customer_notified: true })
+          .eq('id', statusEventId)
+      }
     } catch {
       // Best-effort: a bad phone, no WhatsApp configured, or a send
       // failure must never break the sync for other orders.
@@ -239,44 +264,54 @@ export async function backfillAccountDropiOrders(
     return result
   }
 
-  const integrationKey = decrypt(config.integration_key as string)
+  // Same account-level lock as the routine sync — a backfill and a
+  // cron tick (or two backfill clicks) must not overlap. See
+  // migration 038.
+  const { data: claimed } = await db.rpc('claim_dropi_sync', {
+    p_account_id: accountId,
+  })
+  if (!claimed) return result
 
-  for (let page = 0; page < BACKFILL_MAX_PAGES; page++) {
-    let orders: DropiOrder[]
-    try {
-      orders = await listMyOrders({
-        integrationKey,
-        resultNumber: BACKFILL_PAGE_SIZE,
-        start: page * BACKFILL_PAGE_SIZE,
-      })
-    } catch (err) {
-      result.error = err instanceof Error ? err.message : 'unknown Dropi API error'
-      console.error(
-        `[dropi/backfill] listMyOrders failed for account ${accountId} at page ${page}:`,
-        result.error
-      )
-      break
+  try {
+    const integrationKey = decrypt(config.integration_key as string)
+
+    for (let page = 0; page < BACKFILL_MAX_PAGES; page++) {
+      let orders: DropiOrder[]
+      try {
+        orders = await listMyOrders({
+          integrationKey,
+          resultNumber: BACKFILL_PAGE_SIZE,
+          start: page * BACKFILL_PAGE_SIZE,
+        })
+      } catch (err) {
+        result.error = err instanceof Error ? err.message : 'unknown Dropi API error'
+        console.error(
+          `[dropi/backfill] listMyOrders failed for account ${accountId} at page ${page}:`,
+          result.error
+        )
+        break
+      }
+
+      if (orders.length === 0) break
+      result.fetched += orders.length
+
+      for (const order of orders) {
+        await upsertOneOrder(db, accountId, order, result, {
+          notifyEnabled: false,
+          notifyTemplateName: null,
+        })
+      }
+
+      if (orders.length < BACKFILL_PAGE_SIZE) break // last page
     }
 
-    if (orders.length === 0) break
-    result.fetched += orders.length
-
-    for (const order of orders) {
-      await upsertOneOrder(db, accountId, order, result, {
-        notifyEnabled: false,
-        notifyTemplateName: null,
-      })
-    }
-
-    if (orders.length < BACKFILL_PAGE_SIZE) break // last page
+    return result
+  } finally {
+    await db
+      .from('dropi_config')
+      .update({ last_synced_at: new Date().toISOString(), syncing: false })
+      .eq('account_id', accountId)
   }
-
-  await db
-    .from('dropi_config')
-    .update({ last_synced_at: new Date().toISOString() })
-    .eq('account_id', accountId)
-
-  return result
 }
 
 /**
