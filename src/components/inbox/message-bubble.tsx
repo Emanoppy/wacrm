@@ -11,6 +11,7 @@ import {
   LayoutTemplate,
   CornerDownLeft,
   Sparkles,
+  Reply,
 } from "lucide-react";
 import { format } from "date-fns";
 import { ReplyQuote } from "./reply-quote";
@@ -132,12 +133,27 @@ function MessageContent({
         <div>
           <span className="mb-1 inline-flex items-center gap-1 rounded bg-primary/20 px-1.5 py-0.5 text-[10px] font-medium text-primary">
             <LayoutTemplate className="h-3 w-3" />
-            {t("template")}
+            {message.template_name || t("template")}
           </span>
           {message.content_text && (
             <p className="mt-1 whitespace-pre-wrap break-words text-sm">
               {message.content_text}
             </p>
+          )}
+          {message.template_buttons && message.template_buttons.length > 0 && (
+            <div className="mt-2 flex flex-col overflow-hidden rounded-md border-t border-white/20">
+              {message.template_buttons.map((b, i) => (
+                <button
+                  key={i}
+                  type="button"
+                  disabled
+                  className="flex items-center justify-center gap-1.5 border-t border-white/20 py-1.5 text-xs font-medium first:border-t-0"
+                >
+                  <Reply className="h-3 w-3" />
+                  <span className="truncate">{b.text}</span>
+                </button>
+              ))}
+            </div>
           )}
         </div>
       );

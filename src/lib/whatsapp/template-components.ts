@@ -153,3 +153,19 @@ export function buildMetaTemplatePayload(
     components,
   };
 }
+
+/**
+ * Substitute a template's `{{1}}`, `{{2}}`, ... body placeholders with
+ * the values an agent typed when sending it, producing the same text
+ * the customer receives. Used to fill `content_text` on send so the
+ * inbox bubble shows what was actually sent instead of a blank
+ * "Plantilla" badge — every send call site (inbox thread, contact
+ * detail, anywhere else a template gets sent) should call this rather
+ * than send content_text: undefined and let the badge render empty.
+ */
+export function renderTemplateBody(body: string, params: string[]): string {
+  return body.replace(/\{\{(\d+)\}\}/g, (_, raw) => {
+    const idx = Number(raw) - 1;
+    return params[idx] ?? `{{${raw}}}`;
+  });
+}

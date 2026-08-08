@@ -50,6 +50,7 @@ function mapDropiOrderToRow(accountId: string, order: DropiOrder) {
     distribution_company_id: order.distribution_company_id,
     sticker: order.sticker,
     guide_was_downloaded: order.guide_was_downloaded,
+    dropi_created_at: order.created_at || null,
     raw: order,
     last_synced_at: new Date().toISOString(),
   }

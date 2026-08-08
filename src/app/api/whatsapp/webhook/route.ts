@@ -58,6 +58,14 @@ interface WhatsAppMessage {
     button_reply?: { id: string; title: string }
     list_reply?: { id: string; title: string; description?: string }
   }
+  /**
+   * Set when the customer taps a Quick Reply button on a TEMPLATE
+   * message. Distinct from `interactive` (that's only for buttons on
+   * messages sent via the Interactive Messages API, e.g. Flows) — a
+   * template's quick-reply buttons deliver `type: "button"` instead,
+   * with no `interactive` field at all.
+   */
+  button?: { text: string; payload: string }
   /** Present when the customer swipe-replies to one of our messages. */
   context?: { id: string }
 }
@@ -978,7 +986,29 @@ async function parseMessageContent(
       return { ...empty, contentText: '[Interactive reply]' }
     }
 
+    case 'button':
+      // Quick Reply tap on a template message (e.g. "CONFIRMAR PEDIDO").
+      // Mirrors the `interactive` case: human-readable text for the
+      // bubble, `payload` stashed as the reply id so the Flows engine /
+      // automations can route on it exactly like an interactive tap.
+      if (message.button) {
+        return {
+          ...empty,
+          contentText: message.button.text || message.button.payload || null,
+          interactiveReplyId: message.button.payload || null,
+        }
+      }
+      return empty
+
     default:
+      // Temporary diagnostic: log the exact raw payload for anything
+      // we don't recognize, so an unhandled type can be identified from
+      // real Meta data instead of guessed at from docs. Remove once the
+      // 'button' investigation (2026-08-08) is resolved.
+      console.error(
+        `[webhook] Unsupported message type "${message.type}" — raw payload:`,
+        JSON.stringify(message)
+      )
       return {
         ...empty,
         contentText: `[Unsupported message type: ${message.type}]`,

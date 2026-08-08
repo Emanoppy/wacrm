@@ -11,6 +11,7 @@ import {
   TemplatePicker,
   type TemplateSendValues,
 } from '@/components/inbox/template-picker';
+import { renderTemplateBody } from '@/lib/whatsapp/template-components';
 import {
   Sheet,
   SheetContent,
@@ -347,6 +348,11 @@ export function ContactDetailView({
             buttonParams: values.buttonParams,
           },
           template_params: values.body,
+          // Without this the saved message row has content_text: null,
+          // so the inbox bubble shows only the "Plantilla" badge with no
+          // body underneath — the agent can't tell what was actually
+          // sent. Mirrors the inbox thread's own template-send path.
+          content_text: renderTemplateBody(template.body_text, values.body),
         }),
       });
 

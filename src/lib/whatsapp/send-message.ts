@@ -459,6 +459,8 @@ export async function sendMessageToConversation(
       template_name: templateName || null,
       interactive_payload:
         messageType === 'interactive' ? interactivePayload : null,
+      template_buttons:
+        messageType === 'template' ? (templateRow?.buttons ?? null) : null,
       message_id: waMessageId,
       status: 'sent',
       reply_to_message_id: replyToMessageId || null,

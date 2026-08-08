@@ -1,9 +1,11 @@
 import { ImageResponse } from "next/og";
 
-// Replaces the default Next.js favicon with the brand mark — Hostinger
-// violet rounded square + white chat-square glyph — matching the
-// sidebar logo in `src/components/layout/sidebar.tsx`. Next.js renders
-// this at build time and auto-injects <link rel="icon"> into <head>.
+// Cherry brand mark — white rounded square + cherries emoji. White
+// background so the (mostly red) emoji actually reads at 32x32 — a
+// red-on-red version was tried first and was nearly invisible.
+// Matches the "Cherry" product name in src/app/layout.tsx metadata.
+// Next.js renders this at build time and auto-injects
+// <link rel="icon"> into <head>.
 //
 // This route takes precedence over src/app/favicon.ico, which is the
 // Next.js default and can stay on disk harmlessly (or be removed).
@@ -22,22 +24,12 @@ export default function Icon() {
           display: "flex",
           alignItems: "center",
           justifyContent: "center",
-          background: "#7c3aed", // primary (Hostinger-aligned purple)
+          background: "#ffffff",
           borderRadius: 6,
+          fontSize: 22,
         }}
       >
-        <svg
-          width="20"
-          height="20"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="#ffffff"
-          strokeWidth="2.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-        </svg>
+        🍒
       </div>
     ),
     { ...size },

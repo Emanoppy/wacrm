@@ -21,6 +21,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+} from '@/components/ui/sheet';
 import { Search, Loader2, Package, RefreshCw, Settings, History } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
@@ -34,7 +41,22 @@ interface OrderRow {
   total_order: number | null;
   currency: string | null;
   shipping_company: string | null;
-  last_synced_at: string;
+  dropi_created_at: string | null;
+}
+
+interface OrderDetail extends OrderRow {
+  customer_phone: string | null;
+  address: string | null;
+  state: string | null;
+  shipping_amount: number | null;
+  shop_order_id: string | null;
+  shop_order_number: number | null;
+  raw: {
+    orderdetails?: Array<{
+      product: { name: string; sku: string | null };
+      quantity: number;
+    }>;
+  } | null;
 }
 
 interface DropiConfigRow {
@@ -69,6 +91,9 @@ export default function OrdersPage() {
   const [backfilling, setBackfilling] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [detailId, setDetailId] = useState<string | null>(null);
+  const [detail, setDetail] = useState<OrderDetail | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   const fetchConfig = useCallback(async () => {
     const { data } = await supabase
@@ -83,9 +108,9 @@ export default function OrdersPage() {
     let query = supabase
       .from('orders')
       .select(
-        'id, dropi_order_id, customer_name, customer_surname, city, status, total_order, currency, shipping_company, last_synced_at'
+        'id, dropi_order_id, customer_name, customer_surname, city, status, total_order, currency, shipping_company, dropi_created_at'
       )
-      .order('last_synced_at', { ascending: false })
+      .order('dropi_created_at', { ascending: false, nullsFirst: false })
       .limit(200);
 
     if (statusFilter !== 'all') {
@@ -113,6 +138,31 @@ export default function OrdersPage() {
     });
     setLoading(false);
   }, [supabase, search, statusFilter]);
+
+  const fetchDetail = useCallback(
+    async (id: string) => {
+      setDetailLoading(true);
+      const { data, error } = await supabase
+        .from('orders')
+        .select(
+          'id, dropi_order_id, customer_name, customer_surname, customer_phone, address, city, state, status, total_order, currency, shipping_amount, shipping_company, shop_order_id, shop_order_number, dropi_created_at, raw'
+        )
+        .eq('id', id)
+        .single();
+      if (error) {
+        toast.error(error.message);
+        setDetail(null);
+      } else {
+        setDetail(data as OrderDetail);
+      }
+      setDetailLoading(false);
+    },
+    [supabase]
+  );
+
+  useEffect(() => {
+    if (detailId) fetchDetail(detailId);
+  }, [detailId, fetchDetail]);
 
   useEffect(() => {
     fetchConfig();
@@ -286,7 +336,7 @@ export default function OrdersPage() {
                     {t('tableColumns.carrier')}
                   </TableHead>
                   <TableHead className="text-muted-foreground hidden lg:table-cell">
-                    {t('tableColumns.syncedAt')}
+                    {t('tableColumns.createdAt')}
                   </TableHead>
                 </TableRow>
               </TableHeader>
@@ -315,7 +365,11 @@ export default function OrdersPage() {
                   </TableRow>
                 ) : (
                   orders.map((order) => (
-                    <TableRow key={order.id} className="border-border hover:bg-muted/50">
+                    <TableRow
+                      key={order.id}
+                      className="border-border hover:bg-muted/50 cursor-pointer"
+                      onClick={() => setDetailId(order.id)}
+                    >
                       <TableCell className="font-mono text-xs text-muted-foreground">
                         {order.dropi_order_id}
                       </TableCell>
@@ -343,7 +397,9 @@ export default function OrdersPage() {
                         {order.shipping_company || '-'}
                       </TableCell>
                       <TableCell className="text-muted-foreground hidden lg:table-cell text-xs">
-                        {new Date(order.last_synced_at).toLocaleString()}
+                        {order.dropi_created_at
+                          ? new Date(order.dropi_created_at).toLocaleString()
+                          : '-'}
                       </TableCell>
                     </TableRow>
                   ))
@@ -353,6 +409,135 @@ export default function OrdersPage() {
           </div>
         </>
       )}
+
+      <Sheet
+        open={detailId != null}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDetailId(null);
+            setDetail(null);
+          }
+        }}
+      >
+        <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
+          <SheetHeader>
+            <SheetTitle>{t('detail.title')}</SheetTitle>
+            <SheetDescription>
+              {detail ? `#${detail.dropi_order_id}` : ''}
+            </SheetDescription>
+          </SheetHeader>
+
+          {detailLoading || !detail ? (
+            <div className="flex items-center justify-center py-16">
+              <Loader2 className="size-6 animate-spin text-primary" />
+            </div>
+          ) : (
+            <div className="space-y-5 px-4 pb-6">
+              <span
+                className={`inline-flex w-fit items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${statusBadgeClass(detail.status)}`}
+              >
+                {detail.status}
+              </span>
+
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">
+                  {t('detail.customer')}
+                </p>
+                <p className="text-sm text-foreground">
+                  {[detail.customer_name, detail.customer_surname]
+                    .filter(Boolean)
+                    .join(' ') || '-'}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {detail.customer_phone || '-'}
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">
+                  {t('detail.address')}
+                </p>
+                <p className="text-sm text-foreground">{detail.address || '-'}</p>
+                <p className="text-sm text-muted-foreground">
+                  {[detail.city, detail.state].filter(Boolean).join(', ') || '-'}
+                </p>
+              </div>
+
+              <div className="space-y-1">
+                <p className="text-xs font-medium text-muted-foreground">
+                  {t('detail.products')}
+                </p>
+                {detail.raw?.orderdetails && detail.raw.orderdetails.length > 0 ? (
+                  <ul className="space-y-1">
+                    {detail.raw.orderdetails.map((line, i) => (
+                      <li key={i} className="text-sm text-foreground">
+                        {line.quantity}× {line.product?.name ?? '-'}
+                        {line.product?.sku ? (
+                          <span className="text-muted-foreground"> ({line.product.sku})</span>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p className="text-sm text-muted-foreground">-</p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    {t('detail.total')}
+                  </p>
+                  <p className="text-sm text-foreground">
+                    {detail.total_order != null
+                      ? `${detail.currency ?? 'COP'} ${detail.total_order.toLocaleString()}`
+                      : '-'}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    {t('detail.shipping')}
+                  </p>
+                  <p className="text-sm text-foreground">
+                    {detail.shipping_amount != null
+                      ? `${detail.currency ?? 'COP'} ${detail.shipping_amount.toLocaleString()}`
+                      : '-'}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    {t('detail.carrier')}
+                  </p>
+                  <p className="text-sm text-foreground">
+                    {detail.shipping_company || '-'}
+                  </p>
+                </div>
+                <div className="space-y-1">
+                  <p className="text-xs font-medium text-muted-foreground">
+                    {t('detail.createdAt')}
+                  </p>
+                  <p className="text-sm text-foreground">
+                    {detail.dropi_created_at
+                      ? new Date(detail.dropi_created_at).toLocaleString()
+                      : '-'}
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-1 border-t border-border pt-4">
+                <p className="text-xs font-medium text-muted-foreground">
+                  {t('detail.shopOrder')}
+                </p>
+                <p className="text-sm text-muted-foreground">
+                  {[detail.shop_order_number, detail.shop_order_id]
+                    .filter(Boolean)
+                    .join(' — ') || '-'}
+                </p>
+              </div>
+            </div>
+          )}
+        </SheetContent>
+      </Sheet>
     </div>
   );
 }

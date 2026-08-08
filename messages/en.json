@@ -15,7 +15,7 @@
     "createAccount": "Create account"
   },
   "Sidebar": {
-    "title": "CRM Template for WhatsApp",
+    "title": "CherryCRM",
     "dashboard": "Dashboard",
     "inbox": "Inbox",
     "notifications": "Notifications",
@@ -86,11 +86,23 @@
         "status": "Status",
         "total": "Total",
         "carrier": "Carrier",
-        "syncedAt": "Synced"
+        "syncedAt": "Synced",
+        "createdAt": "Created"
       },
       "loading": "Loading orders...",
       "noOrdersYet": "No orders yet — they'll appear here once Dropi sync is on.",
-      "noOrdersMatch": "No orders match your search."
+      "noOrdersMatch": "No orders match your search.",
+      "detail": {
+        "title": "Order detail",
+        "customer": "Customer",
+        "address": "Address",
+        "products": "Products",
+        "total": "Total",
+        "shipping": "Shipping",
+        "carrier": "Carrier",
+        "createdAt": "Created in Dropi",
+        "shopOrder": "Origin store order"
+      }
     }
   },
   "Dashboard": {
@@ -1259,6 +1271,8 @@
       "notSetup": "Not set up yet",
       "connected": "Connected",
       "needsReconnecting": "Needs reconnecting",
+      "dropiSyncing": "Syncing",
+      "dropiPaused": "Connected — sync paused",
       "viewTeamMembers": "View team members",
       "membersCount": "{count} {count, plural, =1 {member} other {members}}",
       "pendingInvites": "{count} pending {count, plural, =1 {invite} other {invites}}",

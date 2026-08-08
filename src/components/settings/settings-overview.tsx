@@ -31,6 +31,11 @@ interface WhatsAppStatus {
   connected: boolean;
 }
 
+interface DropiStatus {
+  configured: boolean;
+  is_active: boolean;
+}
+
 export function SettingsOverview({
   onSelect,
 }: {
@@ -51,6 +56,8 @@ export function SettingsOverview({
   // from blanking the rest of the landing.
   const [whatsapp, setWhatsapp] = useState<WhatsAppStatus | null>(null);
   const [whatsappLoading, setWhatsappLoading] = useState(true);
+  const [dropi, setDropi] = useState<DropiStatus | null>(null);
+  const [dropiLoading, setDropiLoading] = useState(true);
 
   useEffect(() => {
     if (!user || !accountId) return;
@@ -136,6 +143,22 @@ export function SettingsOverview({
       setWhatsappLoading(false);
     })();
 
+    // Dropi connection status — same shape as WhatsApp's tile, but a
+    // single cheap call (no live Dropi API ping here, that's what the
+    // "Test connection" button in the panel itself is for).
+    (async () => {
+      setDropiLoading(true);
+      const res = await fetch('/api/dropi/config', { cache: 'no-store' })
+        .then((r) => r.json())
+        .catch(() => null);
+      if (cancelled) return;
+      setDropi({
+        configured: !!res?.configured,
+        is_active: !!res?.is_active,
+      });
+      setDropiLoading(false);
+    })();
+
     return () => {
       cancelled = true;
     };
@@ -201,6 +224,21 @@ export function SettingsOverview({
       section: 'deals',
       loading: false,
       subtitle: `${defaultCurrency} — ${currencyLabel}`,
+    },
+    {
+      section: 'dropi',
+      loading: dropiLoading,
+      subtitle: !dropi?.configured ? (
+        t('notSetup')
+      ) : dropi.is_active ? (
+        <>
+          <StatusDot tone="ok" /> {t('dropiSyncing')}
+        </>
+      ) : (
+        <>
+          <StatusDot tone="muted" /> {t('dropiPaused')}
+        </>
+      ),
     },
     {
       section: 'fields',

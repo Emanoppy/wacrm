@@ -15,7 +15,7 @@
     "createAccount": "Crear cuenta"
   },
   "Sidebar": {
-    "title": "Plantilla de CRM para WhatsApp",
+    "title": "CherryCRM",
     "dashboard": "Dashboard",
     "inbox": "Bandeja de entrada",
     "notifications": "Notificaciones",
@@ -86,11 +86,23 @@
         "status": "Estado",
         "total": "Total",
         "carrier": "Transportadora",
-        "syncedAt": "Sincronizado"
+        "syncedAt": "Sincronizado",
+        "createdAt": "Creado"
       },
       "loading": "Cargando pedidos...",
       "noOrdersYet": "Todavía no hay pedidos — aparecerán aquí cuando actives la sincronización con Dropi.",
-      "noOrdersMatch": "Ningún pedido coincide con tu búsqueda."
+      "noOrdersMatch": "Ningún pedido coincide con tu búsqueda.",
+      "detail": {
+        "title": "Detalle del pedido",
+        "customer": "Cliente",
+        "address": "Dirección",
+        "products": "Productos",
+        "total": "Total",
+        "shipping": "Envío",
+        "carrier": "Transportadora",
+        "createdAt": "Creado en Dropi",
+        "shopOrder": "Pedido en tienda de origen"
+      }
     }
   },
   "Dashboard": {
@@ -1259,6 +1271,8 @@
       "notSetup": "Aún no configurado",
       "connected": "Conectado",
       "needsReconnecting": "Necesita reconectarse",
+      "dropiSyncing": "Sincronizando",
+      "dropiPaused": "Conectado — sincronización pausada",
       "viewTeamMembers": "Ver miembros del equipo",
       "membersCount": "{count} {count, plural, =1 {miembro} other {miembros}}",
       "pendingInvites": "{count} {count, plural, =1 {invitación pendiente} other {invitaciones pendientes}}",

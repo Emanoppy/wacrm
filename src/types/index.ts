@@ -246,6 +246,13 @@ export interface Message {
    */
   interactive_payload?: InteractiveMessagePayload;
   /**
+   * Snapshot of the template's buttons (message_templates.buttons) at
+   * the moment it was sent — lets the bubble render them (Quick Reply
+   * / URL / Phone / Copy Code) instead of just the body text. Only set
+   * when `content_type === 'template'`. Migration 040.
+   */
+  template_buttons?: TemplateButton[];
+  /**
    * True when the AI auto-reply bot generated + sent this message (as
    * opposed to a human agent or a deterministic Flow/automation send,
    * which all share `sender_type='bot'`/`'agent'`). Drives the "AI"
