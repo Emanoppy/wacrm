@@ -147,13 +147,46 @@ errores), `npm run lint` (0 errores), `npx vitest run` (700/706 — los
 relacionados con este trabajo), y chequeo de paridad i18n (0
 faltantes/sobrantes).
 
+## 5.1 Sesión 2026-08-10 (tarde) — automatizaciones + prueba real + fix
+
+1. **Se crearon 6 automatizaciones** de WhatsApp ligadas a los estados
+   reales de Dropi y a las plantillas ya aprobadas (Confirmación, Guía
+   generada, En reparto, Entregado, más las 2 respuestas a botones:
+   "Confirmar Pedido" / "Modificar Datos"). Viven en `automations` /
+   `automation_steps`, actualmente **todas en `is_active: false`**.
+2. **Migración `045` aplicada** (confirmado).
+3. **Se hizo una prueba real de extremo a extremo** con una cuenta de
+   Dropi de prueba — durante la prueba se sincronizó por error con la
+   clave de la cuenta **real** un par de veces (el campo no se había
+   guardado a tiempo), lo que repobló pedidos/contactos reales. Se
+   limpió dos veces (borrado de `orders`, `deals` del pipeline Dropi, y
+   contactos sin conversación real — se preservó siempre el único
+   contacto con historial de chat real). **Estado actual: 0 pedidos, 0
+   deals del pipeline Dropi, 1 contacto** (el único con mensajes
+   reales). Las 6 automatizaciones y `dropi_config.is_active` /
+   `notify_customers_enabled` quedaron **apagados** después de la
+   prueba — hay que volver a encenderlos a propósito antes de la
+   siguiente prueba o de ir a producción real.
+4. **Bug real encontrado y arreglado**: la regla "nunca notificar la
+   primera vez que el CRM ve un pedido" (para no mandarle mensaje a
+   todo el historial viejo al activar el sync) también bloqueaba sin
+   querer el caso que sí se necesita — un pedido genuinamente nuevo.
+   Arreglo: nueva columna `dropi_config.notify_since` (migración
+   `046`, **confirmar que se aplicó**) — pedidos creados en Dropi en o
+   después de esa fecha sí disparan la automatización aunque sea la
+   primera vez que el CRM los ve. Configurable en Configuración →
+   Dropi. `null` (vacío) = comportamiento seguro de siempre.
+5. Verificado: el motor de automatizaciones (`engine.ts`) consulta
+   `automations.is_active` en vivo en cada disparo, no cachea — apagar
+   una automatización a mitad de un sync en curso sí detiene mensajes
+   pendientes de ese mismo run.
+
 ## 6. Pendientes inmediatos (en orden)
 
-1. **Aplicar la migración `045_dropi_deal_status.sql`** en el SQL
-   Editor de Supabase si todavía no se hizo — es una sola línea
-   (`ALTER TABLE dropi_config ADD COLUMN IF NOT EXISTS lost_statuses
-   text[] NOT NULL DEFAULT '{}'`). Sin esto, guardar Settings → Dropi
-   con `lost_statuses` falla.
+1. **Aplicar la migración `046_dropi_notify_since.sql`** en el SQL
+   Editor de Supabase — una sola línea (`ALTER TABLE dropi_config ADD
+   COLUMN IF NOT EXISTS notify_since timestamptz DEFAULT NULL`). Ver
+   sección 5.1 punto 4. (La `045` ya se aplicó y se confirmó.)
 2. **Corregir el `status` de los deals ya existentes** — los 241 deals
    creados antes del punto 7 de la sección 5 quedaron todos en
    `'open'`; como el pedido no cambia de estado en Dropi solo por
