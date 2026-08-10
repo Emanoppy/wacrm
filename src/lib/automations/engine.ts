@@ -6,6 +6,7 @@ import type {
   ConditionStepConfig,
   KeywordMatchTriggerConfig,
   InteractiveReplyTriggerConfig,
+  OrderStatusChangedTriggerConfig,
   TagTriggerConfig,
   SendMessageStepConfig,
   SendButtonsStepConfig,
@@ -42,6 +43,13 @@ export interface AutomationContext {
   agent_id?: string
   /** Button / list-row id the customer tapped, for interactive_reply. */
   interactive_reply_id?: string
+  /** Dropi order id (our internal `orders.id`), for order_status_changed. */
+  order_id?: string
+  /** Previous status; undefined when the order is being seen for the
+   *  first time, for order_status_changed. */
+  order_from_status?: string
+  /** New status, for order_status_changed. */
+  order_to_status?: string
 }
 
 export interface DispatchInput {
@@ -56,6 +64,15 @@ export interface DispatchInput {
   context?: AutomationContext
 }
 
+/** Outcome summary for a dispatch — currently only `matchedCount`,
+ *  used by callers that need to know whether anything actually fired
+ *  (e.g. the Dropi sync marks `order_status_events.customer_notified`
+ *  only when at least one automation matched). Existing fire-and-forget
+ *  callers ignore the return value entirely, so adding this is additive. */
+export interface DispatchResult {
+  matchedCount: number
+}
+
 /**
  * Fire all active automations matching the given trigger for an
  * account.
@@ -64,7 +81,7 @@ export interface DispatchInput {
  * All errors are caught and logged; per-automation failures are
  * recorded into automation_logs with status='failed'.
  */
-export async function runAutomationsForTrigger(input: DispatchInput): Promise<void> {
+export async function runAutomationsForTrigger(input: DispatchInput): Promise<DispatchResult> {
   try {
     const db = supabaseAdmin()
 
@@ -84,11 +101,11 @@ export async function runAutomationsForTrigger(input: DispatchInput): Promise<vo
         .maybeSingle()
       if (ownErr) {
         console.error('[automations] contact ownership check failed:', ownErr)
-        return
+        return { matchedCount: 0 }
       }
       if (!owned) {
         console.warn('[automations] contact not in account, refusing dispatch', input.contactId)
-        return
+        return { matchedCount: 0 }
       }
     }
 
@@ -101,20 +118,24 @@ export async function runAutomationsForTrigger(input: DispatchInput): Promise<vo
 
     if (error) {
       console.error('[automations] fetch failed:', error)
-      return
+      return { matchedCount: 0 }
     }
-    if (!automations || automations.length === 0) return
+    if (!automations || automations.length === 0) return { matchedCount: 0 }
 
+    let matchedCount = 0
     for (const automation of automations as Automation[]) {
       if (!triggerMatches(automation, input.context)) continue
+      matchedCount++
       try {
         await executeAutomation(automation, input)
       } catch (err) {
         console.error('[automations] execute failed:', automation.id, err)
       }
     }
+    return { matchedCount }
   } catch (err) {
     console.error('[automations] dispatch failed:', err)
+    return { matchedCount: 0 }
   }
 }
 
@@ -416,7 +437,12 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
               if (bNum) return 1
               return a.localeCompare(b)
             })
-            .map((k) => String(cfg.variables![k]))
+            // Run each value through the same {{ vars.* }} / {{ message.* }}
+            // interpolation every other step's string fields get — lets an
+            // automation write `{{ vars.customer_name }}` as a template
+            // variable instead of only ever sending static text. A value
+            // with no `{{ }}` passes through unchanged.
+            .map((k) => interpolate(String(cfg.variables![k]), args))
         : []
       const { whatsapp_message_id } = await engineSendTemplate({
         accountId: args.automation.account_id,
@@ -728,6 +754,18 @@ export function triggerMatches(automation: Automation, ctx: AutomationContext | 
     const cfg = automation.trigger_config as TagTriggerConfig
     const tagId = ctx?.tag_id
     return Boolean(tagId && cfg?.tag_id && cfg.tag_id === tagId)
+  }
+
+  if (automation.trigger_type === 'order_status_changed') {
+    const cfg = automation.trigger_config as OrderStatusChangedTriggerConfig
+    // `to_status` is required at activation time (validateTriggerForActivation),
+    // but an automation saved before activation — or one bypassing that
+    // check — could still have it empty. Refuse rather than firing on
+    // every status change, which is very unlikely to be the intent.
+    if (!cfg?.to_status) return false
+    if (cfg.to_status !== ctx?.order_to_status) return false
+    if (cfg.from_status && cfg.from_status !== ctx?.order_from_status) return false
+    return true
   }
 
   return true

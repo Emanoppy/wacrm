@@ -11,6 +11,7 @@ import type {
   ActivityItem,
   ConversationsSeriesPoint,
   MetricsBundle,
+  OrderStatsSummary,
   PipelineDonutData,
   PipelineStageSlice,
   ResponseTimeBucket,
@@ -395,4 +396,127 @@ export async function loadActivity(db: DB, limit = 20): Promise<ActivityItem[]> 
   return items
     .sort((a, b) => (a.at > b.at ? -1 : a.at < b.at ? 1 : 0))
     .slice(0, limit)
+}
+
+// --- 6. Dropi order stats (ROADMAP.md Fase 4) --------------------------
+
+interface DropiOrderDetailLine {
+  product?: { sku?: string | null }
+  quantity?: number
+}
+
+interface OrderStatsRow {
+  status: string
+  total_order: number | null
+  shipping_amount: number | null
+  dropi_created_at: string
+  raw: { orderdetails?: DropiOrderDetailLine[] } | null
+}
+
+/** Normalizes a SKU for matching — trims and lower-cases so "ABC-123"
+ *  and " abc-123 " (Dropi's vs. the catalog's own formatting) match. */
+function normalizeSku(sku: string): string {
+  return sku.trim().toLowerCase()
+}
+
+/**
+ * Order counts/rates + estimated profit for the Orders module,
+ * range-scoped to match the rest of the dashboard's day/week/90-day
+ * selector. Returns an all-zero summary (not an error) when Dropi
+ * isn't connected — the page decides whether to render the section at
+ * all based on `dropi_config.is_active` separately.
+ */
+export async function loadOrderStats(db: DB, rangeDays: number): Promise<OrderStatsSummary> {
+  const empty: OrderStatsSummary = {
+    series: [],
+    totalOrders: 0,
+    confirmedOrders: 0,
+    deliveredOrders: 0,
+    confirmationRate: null,
+    deliveryRate: null,
+    estimatedProfit: 0,
+    ordersWithUnknownCost: 0,
+  }
+
+  const { data: config } = await db
+    .from('dropi_config')
+    .select('confirmed_statuses, delivered_statuses, default_shipping_cost')
+    .maybeSingle()
+  if (!config) return empty
+
+  const confirmedStatuses = new Set((config.confirmed_statuses as string[]) ?? [])
+  const deliveredStatuses = new Set((config.delivered_statuses as string[]) ?? [])
+  const defaultShipping = (config.default_shipping_cost as number | null) ?? 0
+
+  const start = daysAgoStart(rangeDays - 1).toISOString()
+  const [ordersRes, productsRes] = await Promise.all([
+    db
+      .from('orders')
+      .select('status, total_order, shipping_amount, dropi_created_at, raw')
+      .not('dropi_created_at', 'is', null)
+      .gte('dropi_created_at', start),
+    db.from('products').select('sku, cost').not('sku', 'is', null),
+  ])
+  if (ordersRes.error) throw ordersRes.error
+
+  const costBySku = new Map<string, number>()
+  for (const p of (productsRes.data ?? []) as { sku: string; cost: number | null }[]) {
+    if (p.cost != null) costBySku.set(normalizeSku(p.sku), p.cost)
+  }
+
+  const keys = lastNDayKeys(rangeDays)
+  const dayBuckets = new Map<string, number>()
+  for (const k of keys) dayBuckets.set(k, 0)
+
+  let confirmedOrders = 0
+  let deliveredOrders = 0
+  let estimatedProfit = 0
+  let ordersWithUnknownCost = 0
+
+  const rows = (ordersRes.data ?? []) as OrderStatsRow[]
+  for (const row of rows) {
+    const key = localDayKey(row.dropi_created_at)
+    if (dayBuckets.has(key)) dayBuckets.set(key, (dayBuckets.get(key) ?? 0) + 1)
+
+    if (confirmedStatuses.has(row.status)) confirmedOrders++
+    const isDelivered = deliveredStatuses.has(row.status)
+    if (isDelivered) deliveredOrders++
+
+    // Profit is only real once the order is actually delivered — a
+    // pending, cancelled, or returned order never collected its
+    // total_order, so counting it here would overstate profit (COD
+    // dropshipping commonly sees 30-50%+ of orders never convert).
+    // Skipped entirely when delivered_statuses isn't configured yet,
+    // rather than falling back to "every order", which is the exact
+    // overstatement this guards against.
+    if (!isDelivered) continue
+
+    const shipping = row.shipping_amount ?? defaultShipping
+    let productCost = 0
+    let sawUnknownSku = false
+    for (const line of row.raw?.orderdetails ?? []) {
+      const sku = line.product?.sku
+      const qty = line.quantity ?? 1
+      if (sku && costBySku.has(normalizeSku(sku))) {
+        productCost += costBySku.get(normalizeSku(sku))! * qty
+      } else {
+        sawUnknownSku = true
+      }
+    }
+    if (sawUnknownSku) ordersWithUnknownCost++
+    estimatedProfit += (row.total_order ?? 0) - shipping - productCost
+  }
+
+  const totalOrders = rows.length
+
+  return {
+    series: keys.map((day) => ({ day, newOrders: dayBuckets.get(day) ?? 0 })),
+    totalOrders,
+    confirmedOrders,
+    deliveredOrders,
+    confirmationRate: totalOrders > 0 ? confirmedOrders / totalOrders : null,
+    deliveryRate: confirmedOrders > 0 ? deliveredOrders / confirmedOrders : null,
+    estimatedProfit,
+    ordersWithUnknownCost,
+  }
 }

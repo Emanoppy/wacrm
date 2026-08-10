@@ -28,8 +28,19 @@ import {
   SheetTitle,
   SheetDescription,
 } from '@/components/ui/sheet';
-import { Search, Loader2, Package, RefreshCw, Settings, History } from 'lucide-react';
+import {
+  Search,
+  Loader2,
+  Package,
+  RefreshCw,
+  Settings,
+  History,
+  ChevronLeft,
+  ChevronRight,
+} from 'lucide-react';
 import { useTranslations } from 'next-intl';
+
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100, 200];
 
 interface OrderRow {
   id: string;
@@ -84,6 +95,7 @@ export default function OrdersPage() {
   const supabase = createClient();
 
   const [orders, setOrders] = useState<OrderRow[]>([]);
+  const [totalCount, setTotalCount] = useState(0);
   const [statuses, setStatuses] = useState<string[]>([]);
   const [config, setConfig] = useState<DropiConfigRow | null | undefined>(undefined);
   const [loading, setLoading] = useState(true);
@@ -91,6 +103,8 @@ export default function OrdersPage() {
   const [backfilling, setBackfilling] = useState(false);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [page, setPage] = useState(0);
+  const [pageSize, setPageSize] = useState(25);
   const [detailId, setDetailId] = useState<string | null>(null);
   const [detail, setDetail] = useState<OrderDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
@@ -103,15 +117,29 @@ export default function OrdersPage() {
     setConfig(data ?? null);
   }, [supabase]);
 
+  // Distinct statuses for the filter dropdown — fetched once on its own,
+  // independent of the paginated orders query below. Pulling it from
+  // whatever page happened to load (the old approach) meant the dropdown
+  // only ever showed statuses seen on pages already visited.
+  const fetchStatuses = useCallback(async () => {
+    const { data } = await supabase.from('orders').select('status').limit(1000);
+    const seen = new Set<string>();
+    (data ?? []).forEach((o) => seen.add(o.status));
+    setStatuses([...seen].sort());
+  }, [supabase]);
+
   const fetchOrders = useCallback(async () => {
     setLoading(true);
+    const from = page * pageSize;
+    const to = from + pageSize - 1;
     let query = supabase
       .from('orders')
       .select(
-        'id, dropi_order_id, customer_name, customer_surname, city, status, total_order, currency, shipping_company, dropi_created_at'
+        'id, dropi_order_id, customer_name, customer_surname, city, status, total_order, currency, shipping_company, dropi_created_at',
+        { count: 'exact' }
       )
       .order('dropi_created_at', { ascending: false, nullsFirst: false })
-      .limit(200);
+      .range(from, to);
 
     if (statusFilter !== 'all') {
       query = query.eq('status', statusFilter);
@@ -124,20 +152,24 @@ export default function OrdersPage() {
       );
     }
 
-    const { data, error } = await query;
+    const { data, error, count } = await query;
     if (error) {
       toast.error(error.message);
       setLoading(false);
       return;
     }
     setOrders(data ?? []);
-    setStatuses((prev) => {
-      const seen = new Set(prev);
-      (data ?? []).forEach((o) => seen.add(o.status));
-      return [...seen].sort();
-    });
+    setTotalCount(count ?? 0);
     setLoading(false);
-  }, [supabase, search, statusFilter]);
+  }, [supabase, search, statusFilter, page, pageSize]);
+
+  // Any filter/page-size change invalidates the current page number —
+  // e.g. landing on page 5 of "all statuses" then filtering down to a
+  // status with only 1 page would otherwise show an empty page instead
+  // of resetting to the first one.
+  useEffect(() => {
+    setPage(0);
+  }, [search, statusFilter, pageSize]);
 
   const fetchDetail = useCallback(
     async (id: string) => {
@@ -166,7 +198,8 @@ export default function OrdersPage() {
 
   useEffect(() => {
     fetchConfig();
-  }, [fetchConfig]);
+    fetchStatuses();
+  }, [fetchConfig, fetchStatuses]);
 
   useEffect(() => {
     fetchOrders();
@@ -183,7 +216,7 @@ export default function OrdersPage() {
       // code. Checking only `res.ok` let this fail completely silently.
       if (!res.ok) throw new Error(body.error || 'Sync failed');
       if (body.error) throw new Error(body.error);
-      await Promise.all([fetchOrders(), fetchConfig()]);
+      await Promise.all([fetchOrders(), fetchConfig(), fetchStatuses()]);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Sync failed');
     } finally {
@@ -199,7 +232,7 @@ export default function OrdersPage() {
       if (!res.ok) throw new Error(body.error || 'Import failed');
       if (body.error) throw new Error(body.error);
       toast.success(t('backfillSuccess', { count: body.fetched ?? 0 }));
-      await Promise.all([fetchOrders(), fetchConfig()]);
+      await Promise.all([fetchOrders(), fetchConfig(), fetchStatuses()]);
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Import failed');
     } finally {
@@ -220,9 +253,7 @@ export default function OrdersPage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">{t('title')}</h1>
           <p className="text-sm text-muted-foreground mt-1">
-            {orders.length > 0
-              ? t('subtitle', { count: orders.length })
-              : t('subtitleZero')}
+            {totalCount > 0 ? t('subtitle', { count: totalCount }) : t('subtitleZero')}
           </p>
         </div>
         {config?.is_active && (
@@ -307,6 +338,21 @@ export default function OrdersPage() {
                 {statuses.map((s) => (
                   <SelectItem key={s} value={s}>
                     {s}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select
+              value={String(pageSize)}
+              onValueChange={(value) => setPageSize(Number(value) || 25)}
+            >
+              <SelectTrigger className="w-full sm:w-40 border-border bg-card text-foreground">
+                <SelectValue placeholder={t('pageSizeLabel')} />
+              </SelectTrigger>
+              <SelectContent>
+                {PAGE_SIZE_OPTIONS.map((size) => (
+                  <SelectItem key={size} value={String(size)}>
+                    {t('pageSizeLabel')}: {size}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -407,6 +453,50 @@ export default function OrdersPage() {
               </TableBody>
             </Table>
           </div>
+
+          {totalCount > 0 && (
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+              <p className="text-xs text-muted-foreground">
+                {t('showingRange', {
+                  from: page * pageSize + 1,
+                  to: Math.min(totalCount, page * pageSize + orders.length),
+                  total: totalCount,
+                })}
+              </p>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setPage((p) => Math.max(0, p - 1))}
+                  disabled={page === 0 || loading}
+                  className="border-border text-muted-foreground hover:bg-muted"
+                >
+                  <ChevronLeft className="size-4" />
+                  {t('prevPage')}
+                </Button>
+                <span className="text-xs text-muted-foreground whitespace-nowrap">
+                  {t('pageOf', {
+                    page: page + 1,
+                    totalPages: Math.max(1, Math.ceil(totalCount / pageSize)),
+                  })}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() =>
+                    setPage((p) =>
+                      (p + 1) * pageSize < totalCount ? p + 1 : p,
+                    )
+                  }
+                  disabled={(page + 1) * pageSize >= totalCount || loading}
+                  className="border-border text-muted-foreground hover:bg-muted"
+                >
+                  {t('nextPage')}
+                  <ChevronRight className="size-4" />
+                </Button>
+              </div>
+            </div>
+          )}
         </>
       )}
 

@@ -446,7 +446,11 @@ export type AutomationTriggerType =
   | 'time_based'
   /** Customer tapped a reply button / list row whose id matches; lets
    *  multi-step menus be chained across automations. */
-  | 'interactive_reply';
+  | 'interactive_reply'
+  /** A synced Dropi order's status changed (or was seen for the first
+   *  time — see `src/lib/dropi/sync.ts`). Fired per order, never on
+   *  the initial import (backfill always skips this trigger). */
+  | 'order_status_changed';
 
 export type AutomationStepType =
   | 'send_message'
@@ -494,12 +498,24 @@ export interface InteractiveReplyTriggerConfig {
   reply_ids: string[];
 }
 
+export interface OrderStatusChangedTriggerConfig {
+  /** Empty/absent = matches any previous status (including "new order,
+   *  never seen before" where there is no previous status). */
+  from_status?: string;
+  /** Empty/absent = matches any new status. Required at activation time
+   *  (see `validateTriggerForActivation`) — the primary use case is
+   *  "notify when it reaches status X", so a wildcard "to" would fire
+   *  on every single change, which is rarely what's wanted. */
+  to_status?: string;
+}
+
 export type AutomationTriggerConfig =
   | Record<string, never>
   | KeywordMatchTriggerConfig
   | TagTriggerConfig
   | TimeBasedTriggerConfig
   | InteractiveReplyTriggerConfig
+  | OrderStatusChangedTriggerConfig
   | Record<string, unknown>;
 
 export interface SendMessageStepConfig {

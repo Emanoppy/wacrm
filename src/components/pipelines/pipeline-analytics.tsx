@@ -9,6 +9,7 @@ import {
   BarChart3,
   Trophy,
   XCircle,
+  Truck,
   Info,
 } from "lucide-react";
 import {
@@ -24,6 +25,13 @@ import { useTranslations } from "next-intl";
 interface PipelineAnalyticsProps {
   stages: PipelineStage[];
   deals: Deal[];
+  /** True when this pipeline is the one linked to Dropi (Settings →
+   *  Dropi → Pipeline) — swaps the generic sales-deal labels/metrics
+   *  for order-tracking ones and drops "Weighted value" (a sales
+   *  probability concept that doesn't apply to a deterministic
+   *  logistics status). A hand-built sales pipeline unrelated to
+   *  Dropi keeps the original labels untouched. */
+  isOrdersPipeline?: boolean;
 }
 
 /**
@@ -46,7 +54,11 @@ function computeStageProbability(
   return 0.1 + t * (0.9 - 0.1);
 }
 
-export function PipelineAnalytics({ stages, deals }: PipelineAnalyticsProps) {
+export function PipelineAnalytics({
+  stages,
+  deals,
+  isOrdersPipeline = false,
+}: PipelineAnalyticsProps) {
   const t = useTranslations("Pipelines.analytics");
   const { defaultCurrency } = useAuth();
   const sortedStages = useMemo(
@@ -95,12 +107,16 @@ export function PipelineAnalytics({ stages, deals }: PipelineAnalyticsProps) {
 
   return (
     <TooltipProvider>
-      <div className="grid grid-cols-2 gap-3 rounded-xl border border-border bg-card/60 p-4 sm:grid-cols-3 xl:grid-cols-6">
+      <div
+        className={`grid grid-cols-2 gap-3 rounded-xl border border-border bg-card/60 p-4 sm:grid-cols-3 ${
+          isOrdersPipeline ? "xl:grid-cols-5" : "xl:grid-cols-6"
+        }`}
+      >
         <Metric
           icon={<BarChart3 className="h-4 w-4 text-muted-foreground" />}
-          label={t("totalDeals")}
+          label={t(isOrdersPipeline ? "totalOrders" : "totalDeals")}
           value={String(stats.totalCount)}
-          tooltip={t("totalDealsTooltip")}
+          tooltip={t(isOrdersPipeline ? "totalOrdersTooltip" : "totalDealsTooltip")}
           t={t}
         />
         <Metric
@@ -112,30 +128,38 @@ export function PipelineAnalytics({ stages, deals }: PipelineAnalyticsProps) {
         />
         <Metric
           icon={<Target className="h-4 w-4 text-blue-400" />}
-          label={t("avgDealSize")}
+          label={t(isOrdersPipeline ? "avgOrderSize" : "avgDealSize")}
           value={formatCurrency(stats.avgValue, defaultCurrency)}
-          tooltip={t("avgDealSizeTooltip")}
+          tooltip={t(isOrdersPipeline ? "avgOrderSizeTooltip" : "avgDealSizeTooltip")}
           t={t}
         />
+        {!isOrdersPipeline && (
+          <Metric
+            icon={<TrendingUp className="h-4 w-4 text-purple-400" />}
+            label={t("weightedValue")}
+            value={formatCurrency(stats.weightedValue, defaultCurrency)}
+            tooltip={t("weightedValueTooltip")}
+            t={t}
+          />
+        )}
         <Metric
-          icon={<TrendingUp className="h-4 w-4 text-purple-400" />}
-          label={t("weightedValue")}
-          value={formatCurrency(stats.weightedValue, defaultCurrency)}
-          tooltip={t("weightedValueTooltip")}
-          t={t}
-        />
-        <Metric
-          icon={<Trophy className="h-4 w-4 text-primary" />}
-          label={t("wonThisMonth")}
+          icon={
+            isOrdersPipeline ? (
+              <Truck className="h-4 w-4 text-primary" />
+            ) : (
+              <Trophy className="h-4 w-4 text-primary" />
+            )
+          }
+          label={t(isOrdersPipeline ? "deliveredThisMonth" : "wonThisMonth")}
           value={String(stats.wonThisMonth)}
-          tooltip={t("wonThisMonthTooltip")}
+          tooltip={t(isOrdersPipeline ? "deliveredThisMonthTooltip" : "wonThisMonthTooltip")}
           t={t}
         />
         <Metric
           icon={<XCircle className="h-4 w-4 text-red-400" />}
-          label={t("lostThisMonth")}
+          label={t(isOrdersPipeline ? "cancelledThisMonth" : "lostThisMonth")}
           value={String(stats.lostThisMonth)}
-          tooltip={t("lostThisMonthTooltip")}
+          tooltip={t(isOrdersPipeline ? "cancelledThisMonthTooltip" : "lostThisMonthTooltip")}
           t={t}
         />
       </div>

@@ -80,7 +80,7 @@ interface TemplateFormData {
 const emptyForm: TemplateFormData = {
   name: '',
   category: 'Marketing',
-  language: 'en_US',
+  language: 'es_CO',
   header_format: 'none',
   header_content: '',
   header_media_url: '',
@@ -92,12 +92,14 @@ const emptyForm: TemplateFormData = {
 };
 
 const COMMON_LANGUAGE_CODES = [
+  'es_CO',
+  'es',
+  'es_MX',
+  'es_AR',
+  'es_ES',
   'en_US',
   'en_GB',
   'en',
-  'es',
-  'es_ES',
-  'es_MX',
   'fr',
   'fr_FR',
   'de',
@@ -217,7 +219,7 @@ export function TemplateManager() {
     return {
       name: form.name.trim(),
       category: form.category,
-      language: form.language.trim() || 'en_US',
+      language: form.language.trim() || 'es_CO',
       header_type: form.header_format === 'none' ? undefined : form.header_format,
       header_content:
         form.header_format === 'text' ? form.header_content.trim() : undefined,
@@ -238,7 +240,7 @@ export function TemplateManager() {
     setForm({
       name: template.name,
       category: template.category,
-      language: template.language || 'en_US',
+      language: template.language || 'es_CO',
       header_format: (template.header_type ?? 'none') as HeaderFormat,
       header_content: template.header_content ?? '',
       header_media_url: template.header_media_url ?? '',

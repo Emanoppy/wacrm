@@ -24,6 +24,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { cn } from "@/lib/utils";
 import { GitBranch, Plus, ChevronDown, Settings } from "lucide-react";
 import { toast } from "sonner";
 import { useCan } from "@/hooks/use-can";
@@ -57,6 +58,13 @@ export default function PipelinesPage() {
   const [stages, setStages] = useState<PipelineStage[]>([]);
   const [deals, setDeals] = useState<Deal[]>([]);
   const [loading, setLoading] = useState(true);
+  const [dateRange, setDateRange] = useState<"today" | "month" | "all">("all");
+  // Which pipeline (if any) the Dropi integration is linked to — lets
+  // the analytics widget switch to order-tracking labels/metrics
+  // (Total pedidos, Entregados/Cancelados) instead of the generic
+  // sales-deal ones, without changing anything for a hand-built
+  // sales pipeline that has nothing to do with Dropi.
+  const [dropiPipelineId, setDropiPipelineId] = useState<string | null>(null);
 
   // Dialog / sheet state
   const [newPipelineOpen, setNewPipelineOpen] = useState(false);
@@ -98,16 +106,44 @@ export default function PipelinesPage() {
   );
 
   const loadDeals = useCallback(
-    async (pipelineId: string) => {
-      const { data } = await supabase
+    async (pipelineId: string, range: "today" | "month" | "all") => {
+      let query = supabase
         .from("deals")
         .select("*, contact:contacts(*), assignee:profiles!deals_assigned_to_fkey(*)")
         .eq("pipeline_id", pipelineId)
         .order("created_at", { ascending: false });
+      if (range !== "all") {
+        const now = new Date();
+        const start =
+          range === "today"
+            ? new Date(now.getFullYear(), now.getMonth(), now.getDate())
+            : new Date(now.getFullYear(), now.getMonth(), 1);
+        query = query.gte("created_at", start.toISOString());
+      }
+      const { data } = await query;
       return (data ?? []) as Deal[];
     },
     [supabase],
   );
+
+  // Which pipeline (if any) Dropi is linked to — fetched once, not
+  // re-fetched per pipeline switch, since an account only ever links
+  // one pipeline to Dropi (Settings → Dropi → Pipeline).
+  useEffect(() => {
+    if (!accountId) return;
+    let cancelled = false;
+    (async () => {
+      const { data } = await supabase
+        .from("dropi_config")
+        .select("pipeline_id")
+        .eq("account_id", accountId)
+        .maybeSingle();
+      if (!cancelled) setDropiPipelineId((data?.pipeline_id as string | null) ?? null);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, supabase]);
 
   const seedDefaultPipeline = useCallback(async (): Promise<Pipeline | null> => {
     const {
@@ -185,7 +221,7 @@ export default function PipelinesPage() {
     (async () => {
       const [s, d] = await Promise.all([
         loadStages(selectedPipelineId),
-        loadDeals(selectedPipelineId),
+        loadDeals(selectedPipelineId, dateRange),
       ]);
       if (cancelled) return;
       setStages(s);
@@ -194,7 +230,7 @@ export default function PipelinesPage() {
     return () => {
       cancelled = true;
     };
-  }, [selectedPipelineId, loadStages, loadDeals]);
+  }, [selectedPipelineId, dateRange, loadStages, loadDeals]);
 
   const refreshPipelines = useCallback(async () => {
     const list = await loadPipelines();
@@ -211,8 +247,8 @@ export default function PipelinesPage() {
 
   const refreshDeals = useCallback(async () => {
     if (!selectedPipelineId) return;
-    setDeals(await loadDeals(selectedPipelineId));
-  }, [loadDeals, selectedPipelineId]);
+    setDeals(await loadDeals(selectedPipelineId, dateRange));
+  }, [loadDeals, selectedPipelineId, dateRange]);
 
   const handleDealMoved = useCallback(
     async (dealId: string, newStageId: string) => {
@@ -364,6 +400,35 @@ export default function PipelinesPage() {
               )}
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {/* Date-range filter — scopes both the analytics numbers above
+              the board and which deals render in it, so "Valor del
+              pipeline" reflects a real period instead of an all-time
+              total, and a busy stage isn't showing months of history
+              by default. */}
+          <div className="inline-flex rounded-lg border border-border bg-card p-0.5 text-xs">
+            {(
+              [
+                ["today", t("dateRangeToday")],
+                ["month", t("dateRangeMonth")],
+                ["all", t("dateRangeAll")],
+              ] as const
+            ).map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setDateRange(value)}
+                className={cn(
+                  "rounded-md px-2.5 py-1.5 font-medium transition-colors",
+                  dateRange === value
+                    ? "bg-primary text-primary-foreground"
+                    : "text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="flex items-center gap-2">
@@ -412,7 +477,11 @@ export default function PipelinesPage() {
         </div>
       ) : (
         <>
-          <PipelineAnalytics stages={stages} deals={deals} />
+          <PipelineAnalytics
+            stages={stages}
+            deals={deals}
+            isOrdersPipeline={selectedPipelineId !== "" && selectedPipelineId === dropiPipelineId}
+          />
           <PipelineBoard
             stages={stages}
             deals={deals}

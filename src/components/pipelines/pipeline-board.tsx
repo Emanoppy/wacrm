@@ -231,7 +231,7 @@ function StageColumn({
 
       <div
         ref={setNodeRef}
-        className={`mt-3 flex flex-1 flex-col gap-2 rounded-lg transition-all ${
+        className={`mt-3 flex max-h-[65vh] flex-1 flex-col gap-2 overflow-y-auto rounded-lg transition-all ${
           isOver
             ? "bg-primary/5 outline outline-2 outline-dashed outline-primary outline-offset-2"
             : ""

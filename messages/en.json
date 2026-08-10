@@ -22,6 +22,7 @@
     "contacts": "Contacts",
     "pipelines": "Pipelines",
     "orders": "Orders",
+    "products": "Products",
     "broadcasts": "Broadcasts",
     "automations": "Automations",
     "flows": "Flows",
@@ -47,6 +48,8 @@
     "notifications": "Notifications",
     "contacts": "Contacts",
     "pipelines": "Pipelines",
+    "orders": "Orders",
+    "products": "Products",
     "broadcasts": "Broadcasts",
     "automations": "Automations",
     "settings": "Settings",
@@ -69,6 +72,11 @@
       "searchPlaceholder": "Search by customer, city, Dropi order ID...",
       "statusFilterLabel": "Status",
       "allStatuses": "All statuses",
+      "pageSizeLabel": "Per page",
+      "showingRange": "Showing {from}–{to} of {total}",
+      "pageOf": "Page {page} of {totalPages}",
+      "prevPage": "Previous",
+      "nextPage": "Next",
       "syncNowBtn": "Sync now",
       "syncing": "Syncing...",
       "backfillBtn": "Import full history",
@@ -105,6 +113,46 @@
       }
     }
   },
+  "Products": {
+    "page": {
+      "title": "Products",
+      "description": "Your catalog — price, cost, technical specs, and photos. Specs feed the AI assistant so it can answer product questions during a sale.",
+      "newProduct": "New product",
+      "editProduct": "Edit product",
+      "noProductsYet": "No products yet",
+      "noProductsDesc": "Add your first product to start tracking cost/profit and let the AI assistant answer questions about it.",
+      "colProduct": "Product",
+      "colSku": "SKU",
+      "colPrice": "Sale price",
+      "colCost": "Cost",
+      "colNiche": "Niche",
+      "colActions": "Actions",
+      "fieldName": "Name",
+      "fieldSku": "SKU",
+      "fieldSalePrice": "Sale price",
+      "fieldCost": "Cost",
+      "fieldCostHint": "Used to calculate profit in the dashboard — never shown to customers.",
+      "fieldNiche": "Niche",
+      "fieldNicheHint": "Tags a contact with this niche when they buy this product (for future remarketing). Manage niches as regular tags in Settings.",
+      "noNiche": "No niche",
+      "fieldDescription": "Short description",
+      "fieldTechnicalSpec": "Technical spec / FAQ",
+      "fieldTechnicalSpecHint": "Free text — this is what the AI assistant reads to answer customer questions about this product.",
+      "fieldImages": "Photos",
+      "imageTooLarge": "Image is too large (max 5 MB).",
+      "uploadFailed": "Upload failed.",
+      "missingName": "Enter a product name.",
+      "saveSuccess": "Product saved.",
+      "saveFailed": "Failed to save.",
+      "deleteSuccess": "Product deleted.",
+      "deleteFailed": "Failed to delete.",
+      "deleteConfirmTitle": "Delete product?",
+      "deleteConfirmDesc": "This removes \"{name}\" and its knowledge-base entry. This can't be undone.",
+      "cancel": "Cancel",
+      "save": "Save",
+      "delete": "Delete"
+    }
+  },
   "Dashboard": {
     "page": {
       "title": "Dashboard",
@@ -116,7 +164,19 @@
       "newTodayVsYesterday": "new today vs yesterday",
       "vsYesterday": "vs yesterday",
       "openDeals": "{count} open {count, plural, =1 {deal} other {deals}}",
-      "noChange": "No change {suffix}"
+      "noChange": "No change {suffix}",
+      "newOrders": "New orders",
+      "rangeDays": "Last {count} days",
+      "confirmationRate": "Confirmation rate",
+      "confirmedOf": "{confirmed} of {total} confirmed",
+      "deliveryRate": "Delivery rate",
+      "deliveredOf": "{delivered} of {confirmed} confirmed delivered",
+      "estimatedProfit": "Estimated profit",
+      "profitBasisDelivered": "Based on {count} delivered order(s)",
+      "profitBasisUnconfigured": "Set \"Delivered statuses\" in Settings → Dropi to calculate real profit",
+      "unknownCostWarning": "{count} order(s) missing product cost",
+      "unknownCostHint": "{count} order(s) in this range have a product whose SKU doesn't match your catalog — profit is understated for those.",
+      "unknownCostLink": "Fix in Products"
     },
     "quickActions": {
       "newContact": "New Contact",
@@ -168,6 +228,12 @@
     },
     "emptyState": {
       "title": "Not enough data yet"
+    },
+    "orderStatsChart": {
+      "title": "New Orders",
+      "description": "Dropi orders synced per day",
+      "noOrders": "No orders in this range",
+      "noOrdersHint": "Sync orders from the Orders page to start populating this chart."
     }
   },
   "Inbox": {
@@ -541,6 +607,9 @@
   "Pipelines": {
     "page": {
       "selectPipeline": "Select Pipeline",
+      "dateRangeToday": "Today",
+      "dateRangeMonth": "This month",
+      "dateRangeAll": "All time",
       "noPipelinesYet": "No pipelines yet",
       "managePipelines": "Manage Pipelines",
       "addPipeline": "Add Pipeline",
@@ -648,7 +717,15 @@
       "wonThisMonthTooltip": "Deals marked as Won since the first day of the current month.",
       "lostThisMonth": "Lost This Month",
       "lostThisMonthTooltip": "Deals marked as Lost since the first day of the current month.",
-      "howCalculated": "How {label} is calculated"
+      "howCalculated": "How {label} is calculated",
+      "totalOrders": "Total orders",
+      "totalOrdersTooltip": "Number of orders in this pipeline within the selected period, excluding cancelled ones.",
+      "avgOrderSize": "Avg order value",
+      "avgOrderSizeTooltip": "Total value divided by order count — the average value of a non-cancelled order.",
+      "deliveredThisMonth": "Delivered this month",
+      "deliveredThisMonthTooltip": "Orders that reached a \"delivered\" status (Settings → Dropi) since the first day of the current month.",
+      "cancelledThisMonth": "Cancelled this month",
+      "cancelledThisMonthTooltip": "Orders that reached a status configured as \"lost\" (Settings → Dropi) since the first day of the current month."
     }
   },
   "Broadcasts": {
@@ -933,7 +1010,20 @@
         "time_based": {
           "label": "Time-Based",
           "hint": "On a recurring schedule"
+        },
+        "order_status_changed": {
+          "label": "Order Status Changed",
+          "hint": "A synced Dropi order reached a specific status"
         }
+      },
+      "orderStatus": {
+        "to": "New status",
+        "toPlaceholder": "e.g. GUIA_GENERADA",
+        "from": "Previous status",
+        "fromPlaceholder": "Leave blank for any previous status",
+        "any": "Any previous status",
+        "select": "Select a status...",
+        "noOrdersYet": "No orders synced yet — type the exact status text as it appears in Dropi."
       },
       "trigger": "Trigger",
       "triggerType": "Trigger type",
@@ -989,7 +1079,17 @@
         "languageLabel": "Language",
         "select": "Select a template…",
         "unknown": "{name} ({lang}) — not in approved list",
-        "unknownLang": "unknown"
+        "unknownLang": "unknown",
+        "variablesLabel": "Template variables",
+        "variablesHint": "Fill each {{n}} with fixed text or click a token below to insert order data (only fills in when the trigger is \"Order Status Changed\" — empty otherwise).",
+        "variableSample": "e.g. {sample}"
+      },
+      "orderVars": {
+        "customerName": "Customer name",
+        "productSummary": "Product(s)",
+        "totalOrder": "Order total",
+        "toStatus": "New status",
+        "fromStatus": "Previous status"
       },
       "branches": {
         "yes": "Yes",
@@ -1757,10 +1857,39 @@
       "enableSync": "Sync orders",
       "enableSyncDesc": "Master switch. Off = nothing is read from Dropi at all.",
       "enableNotify": "Notify customers on status change",
-      "enableNotifyDesc": "Off = orders still sync and show up here, but no WhatsApp message goes out. Only fires on a change to an order already synced, never on the first import.",
-      "templateName": "WhatsApp template name",
-      "templateNameDesc": "An approved WhatsApp template used for the status-change message.",
-      "templateNamePlaceholder": "order_status_update",
+      "enableNotifyDesc": "Off = orders still sync and show up here, but no automation runs. Only fires on a change to an order already synced, never on the first import. Configure what actually gets sent per status in Automations.",
+      "automationsHint": "Set up what message to send for each status transition in",
+      "automationsLink": "Automations",
+      "neverNotifyStatuses": "Never notify on these statuses",
+      "neverNotifyStatusesDesc": "Pick from your real order statuses (e.g. cancelled orders shouldn't message the customer).",
+      "neverNotifyStatusesPlaceholder": "CANCELADO, DEVOLUCION",
+      "syncBatchSize": "Orders per sync",
+      "syncBatchSizeDesc": "How many recent orders \"Sync now\" and the automatic sync pull each run (10-500). Raise this if your order volume grows and orders start getting missed.",
+      "dashboardSection": "Dashboard",
+      "dashboardSectionDesc": "Dropi's status names aren't standardized — tell the dashboard which of your account's real statuses count as confirmed/delivered so confirmation/delivery rate and profit are accurate.",
+      "confirmedStatuses": "Confirmed statuses",
+      "confirmedStatusesDesc": "Any order whose current status is in this list counts as \"confirmed\" in the dashboard.",
+      "confirmedStatusesPlaceholder": "GUIA_GENERADA, ENTREGADO",
+      "deliveredStatuses": "Delivered statuses",
+      "deliveredStatusesDesc": "Used for the delivery rate, real dashboard profit, and to mark the order as \"delivered\" in the Pipeline.",
+      "deliveredStatusesPlaceholder": "ENTREGADO",
+      "lostStatuses": "Lost statuses",
+      "lostStatusesDesc": "Orders in these statuses are marked as \"cancelled\" in the Pipeline (excluded from the active order count).",
+      "lostStatusesPlaceholder": "CANCELADO",
+      "defaultShippingCost": "Default shipping cost",
+      "defaultShippingCostDesc": "Fallback used in the profit estimate only for orders where Dropi didn't report a shipping amount. Leave blank to treat those as $0 shipping.",
+      "defaultShippingCostPlaceholder": "e.g. 15000",
+      "pipelineSection": "Visual pipeline",
+      "pipelineSectionDesc": "Give each order its own card in Pipelines that moves column automatically as its status changes in Dropi.",
+      "pipelineName": "Orders",
+      "createPipelineBtn": "Create orders pipeline automatically",
+      "pipelineCreated": "Pipeline created — review the mapping below.",
+      "pipelineCreateFailed": "Failed to create the pipeline.",
+      "pipelineLinked": "Orders are linked to this pipeline.",
+      "viewPipeline": "View in Pipelines",
+      "mappingHint": "Pick which column each real status lands on. Statuses left \"Unmapped\" don't move (or create) a deal.",
+      "mappingUnmapped": "Unmapped",
+      "mappingNoOrdersYet": "No orders synced yet — sync at least once so real statuses show up here to map.",
       "remove": "Disconnect",
       "save": "Save",
       "missingKey": "Enter your Dropi integration key.",

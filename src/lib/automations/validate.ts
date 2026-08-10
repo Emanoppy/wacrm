@@ -203,6 +203,14 @@ export function validateTriggerForActivation(
         message: 'reply ids cannot be empty strings',
       })
     }
+  } else if (triggerType === 'order_status_changed') {
+    // `from_status` stays optional (wildcard = "from any status"), but
+    // an unset `to_status` would fire on every single change — almost
+    // never the intent, so it's required (mirrors triggerMatches, which
+    // also refuses to match without it as a defense-in-depth backstop).
+    if (!nonEmpty(cfg.to_status)) {
+      issues.push({ path: 'trigger.to_status', message: 'target status is required' })
+    }
   }
 
   return issues

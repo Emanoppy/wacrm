@@ -61,6 +61,7 @@ import {
   blankListPayload,
 } from "@/components/interactive/interactive-builder"
 import { interactivePayloadPreviewText } from "@/lib/whatsapp/interactive"
+import { extractVariableIndices } from "@/lib/whatsapp/template-validators"
 import { createClient } from "@/lib/supabase/client"
 import { cn } from "@/lib/utils"
 
@@ -138,6 +139,7 @@ const TRIGGER_OPTIONS: { value: AutomationTriggerType }[] = [
   { value: "conversation_assigned" },
   { value: "tag_added" },
   { value: "time_based" },
+  { value: "order_status_changed" },
 ]
 
 function cid(): string {
@@ -170,7 +172,7 @@ function blankConfig(type: AutomationStepType): Record<string, unknown> {
     case "send_list":
       return toStepConfig(blankListPayload())
     case "send_template":
-      return { template_name: "", language: "en_US" }
+      return { template_name: "", language: "en_US", variables: {} }
     case "add_tag":
     case "remove_tag":
       return { tag_id: "" }
@@ -210,6 +212,11 @@ interface AutomationResources {
   customFields: CustomField[]
   pipelines: PipelineOption[]
   stages: PipelineStageOption[]
+  /** Distinct statuses seen across this account's synced Dropi orders —
+   *  Dropi's status vocabulary isn't a fixed enum, so this is sourced
+   *  from real data rather than a hardcoded list. Empty on an account
+   *  with no orders synced yet; the picker falls back to a raw input. */
+  orderStatuses: string[]
 }
 
 interface PipelineOption {
@@ -231,6 +238,7 @@ const ResourcesContext = createContext<AutomationResources>({
   customFields: [],
   pipelines: [],
   stages: [],
+  orderStatuses: [],
 })
 
 function useResources(): AutomationResources {
@@ -244,6 +252,7 @@ function ResourcesProvider({ children }: { children: ReactNode }) {
   const [customFields, setCustomFields] = useState<CustomField[]>([])
   const [pipelines, setPipelines] = useState<PipelineOption[]>([])
   const [stages, setStages] = useState<PipelineStageOption[]>([])
+  const [orderStatuses, setOrderStatuses] = useState<string[]>([])
 
   useEffect(() => {
     let cancelled = false
@@ -254,7 +263,7 @@ function ResourcesProvider({ children }: { children: ReactNode }) {
     // actually be sent (anything else 400s at send time), matching the
     // broadcast picker.
     void (async () => {
-      const [tagsRes, templatesRes, customFieldsRes, pipelinesRes, stagesRes] =
+      const [tagsRes, templatesRes, customFieldsRes, pipelinesRes, stagesRes, ordersRes] =
         await Promise.all([
           supabase.from("tags").select("*").order("name"),
           supabase
@@ -268,6 +277,9 @@ function ResourcesProvider({ children }: { children: ReactNode }) {
             .from("pipeline_stages")
             .select("id, name, pipeline_id, position")
             .order("position"),
+          // No DISTINCT over PostgREST — pull a bounded recent sample and
+          // dedupe client-side, same approach the Orders page filter uses.
+          supabase.from("orders").select("status").limit(500),
         ])
       if (cancelled) return
       setTags((tagsRes.data as TagRecord[] | null) ?? [])
@@ -275,6 +287,11 @@ function ResourcesProvider({ children }: { children: ReactNode }) {
       setCustomFields((customFieldsRes.data as CustomField[] | null) ?? [])
       setPipelines((pipelinesRes.data as PipelineOption[] | null) ?? [])
       setStages((stagesRes.data as PipelineStageOption[] | null) ?? [])
+      const statuses = new Set<string>()
+      ;((ordersRes.data as { status: string }[] | null) ?? []).forEach((o) =>
+        statuses.add(o.status),
+      )
+      setOrderStatuses([...statuses].sort())
     })()
 
     // Members go through the API so we inherit its email-visibility
@@ -298,7 +315,7 @@ function ResourcesProvider({ children }: { children: ReactNode }) {
 
   return (
     <ResourcesContext.Provider
-      value={{ tags, members, templates, customFields, pipelines, stages }}
+      value={{ tags, members, templates, customFields, pipelines, stages, orderStatuses }}
     >
       {children}
     </ResourcesContext.Provider>
@@ -541,18 +558,41 @@ function DealPipelineFields({
   )
 }
 
+// Quick-insert tokens for the order_status_changed trigger's context
+// (see AutomationContext.vars in src/lib/automations/engine.ts and
+// where sync.ts populates them). Safe to offer on every automation —
+// on a trigger that never sets these, the token just resolves to ""
+// at send time (same graceful-empty behaviour as every other
+// {{ vars.* }} interpolation), it doesn't error.
+const ORDER_VAR_TOKENS: { token: string; labelKey: string }[] = [
+  { token: "{{ vars.customer_name }}", labelKey: "orderVars.customerName" },
+  { token: "{{ vars.product_summary }}", labelKey: "orderVars.productSummary" },
+  { token: "{{ vars.total_order }}", labelKey: "orderVars.totalOrder" },
+  { token: "{{ vars.to_status }}", labelKey: "orderVars.toStatus" },
+  { token: "{{ vars.from_status }}", labelKey: "orderVars.fromStatus" },
+]
+
 /** Template dropdown showing approved templates by name + language,
- *  storing both template_name and language. Falls back to manual name +
- *  language inputs when no approved templates are synced yet. */
+ *  storing both template_name and language, plus one input per
+ *  numbered body variable ({{1}}, {{2}}, ...) the selected template
+ *  needs — populated either with literal text or a `{{ vars.* }}`
+ *  token via the quick-insert row. Falls back to manual name +
+ *  language inputs when no approved templates are synced yet (in
+ *  which case variable count can't be known, so no variable inputs
+ *  render either — same limitation the send flow already has). */
 function SendTemplateFields({
   templateName,
   language,
+  variables,
   onChange,
+  onVariablesChange,
   t,
 }: {
   templateName: string
   language: string
+  variables: Record<string, string>
   onChange: (patch: { template_name: string; language: string }) => void
+  onVariablesChange: (variables: Record<string, string>) => void
   t: ReturnType<typeof useTranslations>
 }) {
   const { templates } = useResources()
@@ -586,36 +626,83 @@ function SendTemplateFields({
   // share a name across languages stay distinct.
   const toValue = (name: string, lang: string) => `${name}::${lang}`
   const current = templateName ? toValue(templateName, language) : ""
-  const hasMatch = templates.some(
-    (t) => toValue(t.name, t.language ?? "en_US") === current,
+  const selected = templates.find(
+    (tmpl) => toValue(tmpl.name, tmpl.language ?? "en_US") === current,
   )
+  const varIndices = selected ? extractVariableIndices(selected.body_text ?? "") : []
 
   return (
-    <FieldBlock label={t("templates.templateLabel")}>
-      <select
-        value={current}
-        onChange={(e) => {
-          const [name, lang] = e.target.value.split("::")
-          onChange({ template_name: name ?? "", language: lang ?? "" })
-        }}
-        className={SELECT_CLASS}
-      >
-        <option value="">{t("templates.select")}</option>
-        {templates.map((tmpl) => {
-          const lang = tmpl.language ?? "en_US"
-          return (
-            <option key={tmpl.id} value={toValue(tmpl.name, lang)}>
-              {tmpl.name} ({lang})
+    <>
+      <FieldBlock label={t("templates.templateLabel")}>
+        <select
+          value={current}
+          onChange={(e) => {
+            const [name, lang] = e.target.value.split("::")
+            onChange({ template_name: name ?? "", language: lang ?? "" })
+          }}
+          className={SELECT_CLASS}
+        >
+          <option value="">{t("templates.select")}</option>
+          {templates.map((tmpl) => {
+            const lang = tmpl.language ?? "en_US"
+            return (
+              <option key={tmpl.id} value={toValue(tmpl.name, lang)}>
+                {tmpl.name} ({lang})
+              </option>
+            )
+          })}
+          {current && !selected && (
+            <option value={current}>
+              {t("templates.unknown", { name: templateName, lang: language || t("templates.unknownLang") })}
             </option>
-          )
-        })}
-        {current && !hasMatch && (
-          <option value={current}>
-            {t("templates.unknown", { name: templateName, lang: language || t("templates.unknownLang") })}
-          </option>
-        )}
-      </select>
-    </FieldBlock>
+          )}
+        </select>
+      </FieldBlock>
+
+      {varIndices.length > 0 && (
+        <FieldBlock label={t("templates.variablesLabel")}>
+          <div className="space-y-2">
+            <p className="text-[11px] text-muted-foreground">{t("templates.variablesHint")}</p>
+            <div className="flex flex-wrap gap-1">
+              {ORDER_VAR_TOKENS.map((v) => (
+                <button
+                  key={v.token}
+                  type="button"
+                  onClick={() => {
+                    // Fills the FIRST empty variable slot — the common
+                    // case of building the list top-to-bottom. Authors
+                    // who want a token in a specific later slot can
+                    // still type it directly into that slot's input.
+                    const firstEmpty = varIndices.find((n) => !variables[String(n)])
+                    if (firstEmpty == null) return
+                    onVariablesChange({ ...variables, [String(firstEmpty)]: v.token })
+                  }}
+                  className="rounded-full border border-border bg-muted px-2 py-0.5 text-[11px] text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                >
+                  {t(v.labelKey)}
+                </button>
+              ))}
+            </div>
+            {varIndices.map((n) => {
+              const sample = selected?.sample_values?.body?.[n - 1]
+              return (
+                <div key={n} className="flex items-center gap-2">
+                  <span className="w-8 shrink-0 text-[11px] text-muted-foreground">{`{{${n}}}`}</span>
+                  <Input
+                    value={variables[String(n)] ?? ""}
+                    onChange={(e) =>
+                      onVariablesChange({ ...variables, [String(n)]: e.target.value })
+                    }
+                    placeholder={sample ? t("templates.variableSample", { sample }) : undefined}
+                    className="bg-muted text-foreground"
+                  />
+                </div>
+              )
+            })}
+          </div>
+        </FieldBlock>
+      )}
+    </>
   )
 }
 
@@ -878,6 +965,9 @@ function TriggerCard({
                 </p>
               </div>
             )}
+            {type === "order_status_changed" && (
+              <OrderStatusChangedConfig config={config} onChange={onConfigChange} t={t} />
+            )}
           </div>
         )}
       </div>
@@ -1017,6 +1107,94 @@ function InteractiveReplyConfig({
         className="bg-muted font-mono text-foreground"
       />
       <p className="mt-1 text-[11px] text-muted-foreground">{t("replyIdsHelp")}</p>
+    </div>
+  )
+}
+
+function OrderStatusChangedConfig({
+  config,
+  onChange,
+  t,
+}: {
+  config: Record<string, unknown>
+  onChange: (c: Record<string, unknown>) => void
+  t: ReturnType<typeof useTranslations>
+}) {
+  const { orderStatuses } = useResources()
+  const fromStatus = (config.from_status as string) ?? ""
+  const toStatus = (config.to_status as string) ?? ""
+  const ANY = "__any__"
+
+  // No orders synced yet (fresh account) — fall back to free-text so the
+  // trigger is still authorable instead of blocking on an empty picker.
+  if (orderStatuses.length === 0) {
+    return (
+      <div className="space-y-2">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">
+            {t("orderStatus.to")}
+          </label>
+          <Input
+            value={toStatus}
+            onChange={(e) => onChange({ ...config, to_status: e.target.value })}
+            placeholder={t("orderStatus.toPlaceholder")}
+            className="bg-muted text-foreground"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-muted-foreground">
+            {t("orderStatus.from")}
+          </label>
+          <Input
+            value={fromStatus}
+            onChange={(e) => onChange({ ...config, from_status: e.target.value })}
+            placeholder={t("orderStatus.fromPlaceholder")}
+            className="bg-muted text-foreground"
+          />
+        </div>
+        <p className="text-[11px] text-muted-foreground">{t("orderStatus.noOrdersYet")}</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="space-y-2">
+      <div>
+        <label className="mb-1 block text-xs font-medium text-muted-foreground">
+          {t("orderStatus.to")}
+        </label>
+        <select
+          value={toStatus}
+          onChange={(e) => onChange({ ...config, to_status: e.target.value })}
+          className={SELECT_CLASS}
+        >
+          <option value="">{t("orderStatus.select")}</option>
+          {orderStatuses.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+      </div>
+      <div>
+        <label className="mb-1 block text-xs font-medium text-muted-foreground">
+          {t("orderStatus.from")}
+        </label>
+        <select
+          value={fromStatus || ANY}
+          onChange={(e) =>
+            onChange({ ...config, from_status: e.target.value === ANY ? "" : e.target.value })
+          }
+          className={SELECT_CLASS}
+        >
+          <option value={ANY}>{t("orderStatus.any")}</option>
+          {orderStatuses.map((s) => (
+            <option key={s} value={s}>
+              {s}
+            </option>
+          ))}
+        </select>
+      </div>
     </div>
   )
 }
@@ -1323,7 +1501,9 @@ function StepEditor({
         <SendTemplateFields
           templateName={(cfg.template_name as string) ?? ""}
           language={(cfg.language as string) ?? ""}
+          variables={(cfg.variables as Record<string, string>) ?? {}}
           onChange={(patch) => set(patch)}
+          onVariablesChange={(variables) => set({ variables })}
           t={t}
         />
       )

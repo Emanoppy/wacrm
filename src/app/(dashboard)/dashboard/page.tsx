@@ -9,12 +9,18 @@ import {
   UserPlus,
   DollarSign,
   Send,
+  Package,
+  CheckCircle2,
+  Truck,
+  TrendingUp,
 } from 'lucide-react'
+import Link from 'next/link'
 
 import {
   loadActivity,
   loadConversationsSeries,
   loadMetrics,
+  loadOrderStats,
   loadPipelineDonut,
   loadResponseTime,
 } from '@/lib/dashboard/queries'
@@ -22,6 +28,7 @@ import type {
   ActivityItem,
   ConversationsSeriesPoint,
   MetricsBundle,
+  OrderStatsSummary,
   PipelineDonutData,
   ResponseTimeSummary,
 } from '@/lib/dashboard/types'
@@ -32,6 +39,7 @@ import { QuickActions } from '@/components/dashboard/quick-actions'
 import { ConversationsChart } from '@/components/dashboard/conversations-chart'
 import { PipelineDonut } from '@/components/dashboard/pipeline-donut'
 import { ResponseTimeChart } from '@/components/dashboard/response-time-chart'
+import { OrderStatsChart } from '@/components/dashboard/order-stats-chart'
 import { ActivityFeed } from '@/components/dashboard/activity-feed'
 
 import { useTranslations } from 'next-intl'
@@ -63,6 +71,16 @@ export default function DashboardPage() {
 
   const [activity, setActivity] = useState<ActivityItem[] | null>(null)
   const [activityLoading, setActivityLoading] = useState(true)
+
+  // Order stats only render when Dropi is connected — null means
+  // "not checked yet", false means "checked, not connected".
+  const [dropiActive, setDropiActive] = useState<boolean | null>(null)
+  const [orderStats, setOrderStats] = useState<Record<RangeDays, OrderStatsSummary | null>>({
+    7: null,
+    30: null,
+    90: null,
+  })
+  const [orderStatsLoading, setOrderStatsLoading] = useState(true)
 
   const loadAll = useCallback(() => {
     const db = createClient()
@@ -97,6 +115,29 @@ export default function DashboardPage() {
       .then((a) => setActivity(a))
       .catch((err) => console.error('[dashboard] activity failed:', err))
       .finally(() => setActivityLoading(false))
+
+    void (async () => {
+      let active = false
+      try {
+        const { data } = await db.from('dropi_config').select('is_active').maybeSingle()
+        active = Boolean(data?.is_active)
+      } catch (err) {
+        console.error('[dashboard] dropi config check failed:', err)
+      }
+      setDropiActive(active)
+      if (!active) {
+        setOrderStatsLoading(false)
+        return
+      }
+      try {
+        const s = await loadOrderStats(db, 30)
+        setOrderStats((prev) => ({ ...prev, 30: s }))
+      } catch (err) {
+        console.error('[dashboard] order stats failed:', err)
+      } finally {
+        setOrderStatsLoading(false)
+      }
+    })()
   }, [])
 
   useEffect(() => {
@@ -110,15 +151,23 @@ export default function DashboardPage() {
   const handleRangeChange = useCallback(
     (r: RangeDays) => {
       setRange(r)
-      if (series[r] !== null) return
-      setSeriesLoading(true)
       const db = createClient()
-      loadConversationsSeries(db, r)
-        .then((s) => setSeries((prev) => ({ ...prev, [r]: s })))
-        .catch((err) => console.error('[dashboard] series failed:', err))
-        .finally(() => setSeriesLoading(false))
+      if (series[r] === null) {
+        setSeriesLoading(true)
+        loadConversationsSeries(db, r)
+          .then((s) => setSeries((prev) => ({ ...prev, [r]: s })))
+          .catch((err) => console.error('[dashboard] series failed:', err))
+          .finally(() => setSeriesLoading(false))
+      }
+      if (dropiActive && orderStats[r] === null) {
+        setOrderStatsLoading(true)
+        loadOrderStats(db, r)
+          .then((s) => setOrderStats((prev) => ({ ...prev, [r]: s })))
+          .catch((err) => console.error('[dashboard] order stats failed:', err))
+          .finally(() => setOrderStatsLoading(false))
+      }
     },
-    [series],
+    [series, orderStats, dropiActive],
   )
 
   return (
@@ -219,6 +268,67 @@ export default function DashboardPage() {
       {/* Response time */}
       <ResponseTimeChart data={responseTime} loading={responseTimeLoading} />
 
+      {/* Order stats (Dropi) — only rendered once we know the account
+          has sync turned on; omitted entirely otherwise rather than
+          showing an empty/misleading logistics section. */}
+      {dropiActive && (
+        <div className="space-y-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            {orderStatsLoading || !orderStats[range] ? (
+              Array.from({ length: 4 }).map((_, i) => <SkeletonCard key={i} />)
+            ) : (
+              <>
+                <MetricCard
+                  title={t('newOrders')}
+                  value={orderStats[range]!.totalOrders.toLocaleString()}
+                  icon={Package}
+                  subtitle={t('rangeDays', { count: range })}
+                />
+                <MetricCard
+                  title={t('confirmationRate')}
+                  value={formatRate(orderStats[range]!.confirmationRate)}
+                  icon={CheckCircle2}
+                  subtitle={t('confirmedOf', {
+                    confirmed: orderStats[range]!.confirmedOrders,
+                    total: orderStats[range]!.totalOrders,
+                  })}
+                />
+                <MetricCard
+                  title={t('deliveryRate')}
+                  value={formatRate(orderStats[range]!.deliveryRate)}
+                  icon={Truck}
+                  subtitle={t('deliveredOf', {
+                    delivered: orderStats[range]!.deliveredOrders,
+                    confirmed: orderStats[range]!.confirmedOrders,
+                  })}
+                />
+                <MetricCard
+                  title={t('estimatedProfit')}
+                  value={formatCurrency(orderStats[range]!.estimatedProfit, defaultCurrency)}
+                  icon={TrendingUp}
+                  subtitle={
+                    orderStats[range]!.ordersWithUnknownCost > 0
+                      ? t('unknownCostWarning', { count: orderStats[range]!.ordersWithUnknownCost })
+                      : orderStats[range]!.deliveredOrders > 0
+                        ? t('profitBasisDelivered', { count: orderStats[range]!.deliveredOrders })
+                        : t('profitBasisUnconfigured')
+                  }
+                />
+              </>
+            )}
+          </div>
+          {orderStats[range] && orderStats[range]!.ordersWithUnknownCost > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {t('unknownCostHint', { count: orderStats[range]!.ordersWithUnknownCost })}{' '}
+              <Link href="/products" className="text-primary hover:underline">
+                {t('unknownCostLink')}
+              </Link>
+            </p>
+          )}
+          <OrderStatsChart data={orderStats[range]} loading={orderStatsLoading} />
+        </div>
+      )}
+
       {/* Activity feed */}
       <ActivityFeed items={activity} loading={activityLoading} />
     </div>
@@ -226,6 +336,11 @@ export default function DashboardPage() {
 }
 
 // ------------------------------------------------------------
+
+function formatRate(rate: number | null): string {
+  if (rate == null) return '—'
+  return `${Math.round(rate * 100)}%`
+}
 
 function deltaLabel(delta: number, suffix: string, noChangeLabel: string): string {
   if (delta === 0) return noChangeLabel

@@ -22,6 +22,7 @@
     "contacts": "Contactos",
     "pipelines": "Pipelines",
     "orders": "Pedidos",
+    "products": "Productos",
     "broadcasts": "Difusiones",
     "automations": "Automatizaciones",
     "flows": "Flujos",
@@ -47,6 +48,8 @@
     "notifications": "Notificaciones",
     "contacts": "Contactos",
     "pipelines": "Pipelines",
+    "orders": "Pedidos",
+    "products": "Productos",
     "broadcasts": "Difusiones",
     "automations": "Automatizaciones",
     "settings": "Configuración",
@@ -69,6 +72,11 @@
       "searchPlaceholder": "Buscar por cliente, ciudad, ID de Dropi...",
       "statusFilterLabel": "Estado",
       "allStatuses": "Todos los estados",
+      "pageSizeLabel": "Por página",
+      "showingRange": "Mostrando {from}–{to} de {total}",
+      "pageOf": "Página {page} de {totalPages}",
+      "prevPage": "Anterior",
+      "nextPage": "Siguiente",
       "syncNowBtn": "Sincronizar ahora",
       "syncing": "Sincronizando...",
       "backfillBtn": "Importar historial completo",
@@ -105,6 +113,46 @@
       }
     }
   },
+  "Products": {
+    "page": {
+      "title": "Productos",
+      "description": "Tu catálogo — precio, costo, ficha técnica y fotos. La ficha técnica alimenta al asistente de IA para que responda dudas de producto durante una venta.",
+      "newProduct": "Nuevo producto",
+      "editProduct": "Editar producto",
+      "noProductsYet": "Todavía no hay productos",
+      "noProductsDesc": "Agrega tu primer producto para empezar a medir costo/ganancia y que el asistente de IA pueda responder dudas sobre él.",
+      "colProduct": "Producto",
+      "colSku": "SKU",
+      "colPrice": "Precio de venta",
+      "colCost": "Costo",
+      "colNiche": "Nicho",
+      "colActions": "Acciones",
+      "fieldName": "Nombre",
+      "fieldSku": "SKU",
+      "fieldSalePrice": "Precio de venta",
+      "fieldCost": "Costo",
+      "fieldCostHint": "Se usa para calcular la ganancia en el dashboard — nunca se le muestra al cliente.",
+      "fieldNiche": "Nicho",
+      "fieldNicheHint": "Etiqueta al contacto con este nicho cuando compre este producto (para remarketing a futuro). Los nichos se administran como tags normales en Configuración.",
+      "noNiche": "Sin nicho",
+      "fieldDescription": "Descripción corta",
+      "fieldTechnicalSpec": "Ficha técnica / preguntas frecuentes",
+      "fieldTechnicalSpecHint": "Texto libre — esto es lo que lee el asistente de IA para responder preguntas de los clientes sobre este producto.",
+      "fieldImages": "Fotos",
+      "imageTooLarge": "La imagen es muy grande (máx. 5 MB).",
+      "uploadFailed": "Falló la subida.",
+      "missingName": "Ingresa un nombre de producto.",
+      "saveSuccess": "Producto guardado.",
+      "saveFailed": "Error al guardar.",
+      "deleteSuccess": "Producto eliminado.",
+      "deleteFailed": "Error al eliminar.",
+      "deleteConfirmTitle": "¿Eliminar producto?",
+      "deleteConfirmDesc": "Esto elimina \"{name}\" y su entrada en la base de conocimiento. No se puede deshacer.",
+      "cancel": "Cancelar",
+      "save": "Guardar",
+      "delete": "Eliminar"
+    }
+  },
   "Dashboard": {
     "page": {
       "title": "Dashboard",
@@ -116,7 +164,19 @@
       "newTodayVsYesterday": "nuevos hoy vs. ayer",
       "vsYesterday": "vs. ayer",
       "openDeals": "{count} {count, plural, =1 {Deal abierto} other {Deals abiertos}}",
-      "noChange": "Sin cambios {suffix}"
+      "noChange": "Sin cambios {suffix}",
+      "newOrders": "Pedidos nuevos",
+      "rangeDays": "Últimos {count} días",
+      "confirmationRate": "Tasa de confirmación",
+      "confirmedOf": "{confirmed} de {total} confirmados",
+      "deliveryRate": "Tasa de entrega",
+      "deliveredOf": "{delivered} de {confirmed} confirmados entregados",
+      "estimatedProfit": "Ganancia estimada",
+      "profitBasisDelivered": "Basado en {count} pedido(s) entregado(s)",
+      "profitBasisUnconfigured": "Configura \"Estados entregados\" en Settings → Dropi para calcular la ganancia real",
+      "unknownCostWarning": "{count} pedido(s) sin costo de producto",
+      "unknownCostHint": "{count} pedido(s) en este rango tienen un producto cuyo SKU no coincide con tu catálogo — la ganancia está subestimada para esos.",
+      "unknownCostLink": "Corregir en Productos"
     },
     "quickActions": {
       "newContact": "Nuevo contacto",
@@ -168,6 +228,12 @@
     },
     "emptyState": {
       "title": "Aún no hay suficientes datos"
+    },
+    "orderStatsChart": {
+      "title": "Pedidos nuevos",
+      "description": "Pedidos de Dropi sincronizados por día",
+      "noOrders": "No hay pedidos en este rango",
+      "noOrdersHint": "Sincroniza pedidos desde la página de Pedidos para empezar a completar este gráfico."
     }
   },
   "Inbox": {
@@ -541,6 +607,9 @@
   "Pipelines": {
     "page": {
       "selectPipeline": "Seleccionar Pipeline",
+      "dateRangeToday": "Hoy",
+      "dateRangeMonth": "Este mes",
+      "dateRangeAll": "Todo el tiempo",
       "noPipelinesYet": "Aún no hay Pipelines",
       "managePipelines": "Administrar Pipelines",
       "addPipeline": "Agregar Pipeline",
@@ -648,7 +717,15 @@
       "wonThisMonthTooltip": "Deals marcados como ganados desde el primer día del mes actual.",
       "lostThisMonth": "Perdidos este mes",
       "lostThisMonthTooltip": "Deals marcados como perdidos desde el primer día del mes actual.",
-      "howCalculated": "Cómo se calcula {label}"
+      "howCalculated": "Cómo se calcula {label}",
+      "totalOrders": "Total de pedidos",
+      "totalOrdersTooltip": "Cantidad de pedidos en este pipeline dentro del período seleccionado, sin contar los cancelados.",
+      "avgOrderSize": "Valor promedio del pedido",
+      "avgOrderSizeTooltip": "Valor total dividido entre la cantidad de pedidos — el valor promedio de un pedido no cancelado.",
+      "deliveredThisMonth": "Entregados este mes",
+      "deliveredThisMonthTooltip": "Pedidos que llegaron a un estado de \"entregado\" (Settings → Dropi) desde el primer día del mes actual.",
+      "cancelledThisMonth": "Cancelados este mes",
+      "cancelledThisMonthTooltip": "Pedidos que llegaron a un estado configurado como \"perdido\" (Settings → Dropi) desde el primer día del mes actual."
     }
   },
   "Broadcasts": {
@@ -933,7 +1010,20 @@
         "time_based": {
           "label": "Basado en tiempo",
           "hint": "En un horario recurrente"
+        },
+        "order_status_changed": {
+          "label": "Pedido cambió de estado",
+          "hint": "Un pedido sincronizado de Dropi llegó a un estado específico"
         }
+      },
+      "orderStatus": {
+        "to": "Nuevo estado",
+        "toPlaceholder": "ej. GUIA_GENERADA",
+        "from": "Estado anterior",
+        "fromPlaceholder": "Déjalo vacío para cualquier estado anterior",
+        "any": "Cualquier estado anterior",
+        "select": "Selecciona un estado...",
+        "noOrdersYet": "Todavía no hay pedidos sincronizados — escribe el estado exacto tal como aparece en Dropi."
       },
       "trigger": "Disparador",
       "triggerType": "Tipo de disparador",
@@ -989,7 +1079,17 @@
         "languageLabel": "Idioma",
         "select": "Selecciona una plantilla…",
         "unknown": "{name} ({lang}) — no está en la lista aprobada",
-        "unknownLang": "desconocido"
+        "unknownLang": "desconocido",
+        "variablesLabel": "Variables de la plantilla",
+        "variablesHint": "Llena cada {{n}} con texto fijo, o haz clic en un token abajo para insertar datos del pedido (solo se rellena cuando el disparador es \"Pedido cambió de estado\" — si no, queda vacío).",
+        "variableSample": "ej. {sample}"
+      },
+      "orderVars": {
+        "customerName": "Nombre del cliente",
+        "productSummary": "Producto(s)",
+        "totalOrder": "Total del pedido",
+        "toStatus": "Nuevo estado",
+        "fromStatus": "Estado anterior"
       },
       "branches": {
         "yes": "Sí",
@@ -1745,10 +1845,39 @@
       "enableSync": "Sincronizar pedidos",
       "enableSyncDesc": "Interruptor principal. Apagado = no se consulta nada de Dropi.",
       "enableNotify": "Notificar a clientes al cambiar el estado",
-      "enableNotifyDesc": "Apagado = los pedidos se sincronizan y se ven acá, pero no sale ningún WhatsApp. Solo se dispara cuando cambia el estado de un pedido ya sincronizado, nunca en la primera importación.",
-      "templateName": "Nombre de la plantilla de WhatsApp",
-      "templateNameDesc": "Una plantilla de WhatsApp aprobada, usada para el mensaje de cambio de estado.",
-      "templateNamePlaceholder": "order_status_update",
+      "enableNotifyDesc": "Apagado = los pedidos se sincronizan y se ven acá, pero no corre ninguna automatización. Solo se dispara cuando cambia el estado de un pedido ya sincronizado, nunca en la primera importación. Configura qué se envía en cada estado desde Automatizaciones.",
+      "automationsHint": "Configura qué mensaje mandar por cada cambio de estado en",
+      "automationsLink": "Automatizaciones",
+      "neverNotifyStatuses": "Nunca notificar en estos estados",
+      "neverNotifyStatusesDesc": "Selecciona los estados reales de tus pedidos (ej. un pedido cancelado no debería mandarle mensaje al cliente).",
+      "neverNotifyStatusesPlaceholder": "CANCELADO, DEVOLUCION",
+      "syncBatchSize": "Pedidos por sincronización",
+      "syncBatchSizeDesc": "Cuántos pedidos recientes trae \"Sincronizar ahora\" y la sincronización automática en cada corrida (10-500). Súbelo si el volumen de pedidos crece y empiezan a faltar pedidos.",
+      "dashboardSection": "Dashboard",
+      "dashboardSectionDesc": "Los nombres de estado de Dropi no están estandarizados — dile al dashboard cuáles de los estados reales de tu cuenta cuentan como confirmado/entregado para que la tasa de confirmación/entrega y la ganancia sean exactas.",
+      "confirmedStatuses": "Estados confirmados",
+      "confirmedStatusesDesc": "Cualquier pedido cuyo estado actual esté en esta lista cuenta como \"confirmado\" en el dashboard.",
+      "confirmedStatusesPlaceholder": "GUIA_GENERADA, ENTREGADO",
+      "deliveredStatuses": "Estados entregados",
+      "deliveredStatusesDesc": "Se usa para la tasa de entrega, la ganancia real del dashboard, y para marcar el pedido como \"entregado\" en el Pipeline.",
+      "deliveredStatusesPlaceholder": "ENTREGADO",
+      "lostStatuses": "Estados perdidos",
+      "lostStatusesDesc": "Pedidos en estos estados se marcan como \"cancelado\" en el Pipeline (no cuentan en el total de pedidos activos).",
+      "lostStatusesPlaceholder": "CANCELADO",
+      "defaultShippingCost": "Costo de flete por defecto",
+      "defaultShippingCostDesc": "Respaldo usado en la ganancia estimada solo para pedidos donde Dropi no informó el costo de envío. Déjalo vacío para tratarlos como $0 de flete.",
+      "defaultShippingCostPlaceholder": "ej. 15000",
+      "pipelineSection": "Pipeline visual",
+      "pipelineSectionDesc": "Dale a cada pedido su propia tarjeta en Pipelines que se mueve sola de columna cuando cambia su estado en Dropi.",
+      "pipelineName": "Pedidos",
+      "createPipelineBtn": "Crear pipeline de pedidos automáticamente",
+      "pipelineCreated": "Pipeline creado — revisa el mapeo abajo.",
+      "pipelineCreateFailed": "Error al crear el pipeline.",
+      "pipelineLinked": "Los pedidos están enlazados a este pipeline.",
+      "viewPipeline": "Ver en Pipelines",
+      "mappingHint": "Elige en qué columna cae cada estado real. Los estados que dejes en \"Sin mapear\" no mueven (ni crean) ningún deal.",
+      "mappingUnmapped": "Sin mapear",
+      "mappingNoOrdersYet": "Todavía no hay pedidos sincronizados — sincroniza al menos una vez para que aparezcan los estados reales y puedas mapearlos.",
       "remove": "Desconectar",
       "save": "Guardar",
       "missingKey": "Ingresa tu clave de integración de Dropi.",
