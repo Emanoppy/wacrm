@@ -155,6 +155,9 @@ export interface DropiOrder {
   shipping_company: string | null
   distribution_company_id: number | null
   sticker: string | null
+  /** Tracking/guide number shown to the customer — null until Dropi
+   *  generates the guide (status GUIA_GENERADA onward). */
+  shipping_guide: string | null
   guide_was_downloaded: boolean
   created_at: string
   updated_at: string
