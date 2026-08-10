@@ -39,7 +39,7 @@ export async function GET() {
     const { data, error } = await supabase
       .from('dropi_config')
       .select(
-        'integration_key, is_active, notify_customers_enabled, sync_batch_size, never_notify_statuses, confirmed_statuses, delivered_statuses, lost_statuses, default_shipping_cost, pipeline_id, status_stage_map, last_synced_at',
+        'integration_key, is_active, notify_customers_enabled, sync_batch_size, never_notify_statuses, confirmed_statuses, delivered_statuses, lost_statuses, notify_since, default_shipping_cost, pipeline_id, status_stage_map, last_synced_at',
       )
       .eq('account_id', accountId)
       .maybeSingle()
@@ -94,6 +94,17 @@ export async function POST(request: Request) {
     const confirmedStatuses = stringArray(body.confirmed_statuses)
     const deliveredStatuses = stringArray(body.delivered_statuses)
     const lostStatuses = stringArray(body.lost_statuses)
+
+    // See migration 046. Empty/omitted = today's fully-safe default
+    // (never notify on the CRM's first sight of an order). A malformed
+    // date string is rejected rather than silently ignored — a typo
+    // here shouldn't quietly disable the feature the account just set.
+    let notifySince: string | null = null
+    if (typeof body.notify_since === 'string' && body.notify_since.trim()) {
+      const parsed = new Date(body.notify_since)
+      if (Number.isNaN(parsed.getTime())) return bad('notify_since is not a valid date')
+      notifySince = parsed.toISOString()
+    }
 
     let defaultShippingCost: number | null = null
     if (body.default_shipping_cost !== undefined && body.default_shipping_cost !== null && body.default_shipping_cost !== '') {
@@ -178,6 +189,7 @@ export async function POST(request: Request) {
       confirmed_statuses: confirmedStatuses,
       delivered_statuses: deliveredStatuses,
       lost_statuses: lostStatuses,
+      notify_since: notifySince,
       default_shipping_cost: defaultShippingCost,
       pipeline_id: pipelineId,
       status_stage_map: statusStageMap,

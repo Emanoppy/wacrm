@@ -298,7 +298,7 @@ export async function syncAccountDropiOrders(
   const { data: config } = await db
     .from('dropi_config')
     .select(
-      'integration_key, is_active, notify_customers_enabled, sync_batch_size, never_notify_statuses, delivered_statuses, lost_statuses, pipeline_id, status_stage_map'
+      'integration_key, is_active, notify_customers_enabled, sync_batch_size, never_notify_statuses, delivered_statuses, lost_statuses, pipeline_id, status_stage_map, notify_since'
     )
     .eq('account_id', accountId)
     .maybeSingle()
@@ -323,6 +323,7 @@ export async function syncAccountDropiOrders(
     const neverNotifyStatuses = (config.never_notify_statuses as string[]) ?? []
     const deliveredStatuses = (config.delivered_statuses as string[]) ?? []
     const lostStatuses = (config.lost_statuses as string[]) ?? []
+    const notifySince = (config.notify_since as string | null) ?? null
     const pipeline = await resolvePipelineSync(db, accountId, config)
     const nicheTagBySku = await resolveNicheTagMap(db, accountId)
 
@@ -347,6 +348,7 @@ export async function syncAccountDropiOrders(
         nicheTagBySku,
         deliveredStatuses,
         lostStatuses,
+        notifySince,
       })
     }
 
@@ -366,6 +368,7 @@ export async function syncAccountDropiOrders(
           nicheTagBySku,
           deliveredStatuses,
           lostStatuses,
+          notifySince,
         })
       } catch (err) {
         // Best-effort — one order failing to refresh (deleted on Dropi's
@@ -408,6 +411,12 @@ async function upsertOneOrder(
     nicheTagBySku: Map<string, string>
     deliveredStatuses: string[]
     lostStatuses: string[]
+    /** See migration 046. Orders Dropi created at/after this cutoff are
+     *  notify-worthy even the first time the CRM sees them; orders from
+     *  before it are treated as historical backlog, same as an order
+     *  that already existed with no status change. Null = today's fully
+     *  safe default (never notify on first sight). */
+    notifySince: string | null
   }
 ): Promise<void> {
   const dropiOrderId = String(order.id)
@@ -440,6 +449,17 @@ async function upsertOneOrder(
   const row = mapDropiOrderToRow(accountId, order, contactId, conversationId)
   const statusChanged = Boolean(existing) && existing!.status !== order.status
 
+  // See migration 046 / upsertOneOrder's `notify` param doc. An order
+  // the CRM has never seen before is only notify-worthy if it was
+  // genuinely created in Dropi after the account's configured cutoff —
+  // otherwise it's indistinguishable from historical backlog and must
+  // stay silent, same as today's default.
+  const isNewNotifyWorthy =
+    !existing &&
+    Boolean(notify.notifySince) &&
+    Boolean(order.created_at) &&
+    new Date(order.created_at) >= new Date(notify.notifySince!)
+
   const { data: upserted, error: upsertError } = await db
     .from('orders')
     .upsert(row, { onConflict: 'account_id,dropi_order_id' })
@@ -458,6 +478,21 @@ async function upsertOneOrder(
         order_id: upserted.id,
         account_id: accountId,
         from_status: existing.status,
+        to_status: order.status,
+        customer_notified: false,
+      })
+      .select('id')
+      .single()
+    statusEventId = event?.id ?? null
+  } else if (isNewNotifyWorthy) {
+    // Same audit trail as a status change, but from_status is null —
+    // this is the order's very first state in the CRM, not a transition.
+    const { data: event } = await db
+      .from('order_status_events')
+      .insert({
+        order_id: upserted.id,
+        account_id: accountId,
+        from_status: null,
         to_status: order.status,
         customer_notified: false,
       })
@@ -544,12 +579,13 @@ async function upsertOneOrder(
     }
   }
 
-  // Dispatch: only on a genuine status change to a pre-existing order,
-  // only if notifications are on for the account, and only if the new
-  // status isn't in the never-notify list (e.g. CANCELADO).
+  // Dispatch: a genuine status change to a pre-existing order, OR a
+  // brand-new order created after the account's notify_since cutoff
+  // (see isNewNotifyWorthy) — either way only if notifications are on
+  // for the account and the new status isn't in the never-notify list
+  // (e.g. CANCELADO).
   if (
-    existing &&
-    statusChanged &&
+    (statusChanged || isNewNotifyWorthy) &&
     notify.notifyEnabled &&
     !notify.neverNotifyStatuses.includes(order.status) &&
     upserted.contact_id
@@ -560,6 +596,8 @@ async function upsertOneOrder(
         .filter(Boolean)
         .join(', ')
 
+      const fromStatus = existing ? existing.status : null
+
       const { matchedCount } = await runAutomationsForTrigger({
         accountId,
         triggerType: 'order_status_changed',
@@ -567,7 +605,7 @@ async function upsertOneOrder(
         context: {
           conversation_id: upserted.conversation_id ?? undefined,
           order_id: upserted.id,
-          order_from_status: existing.status,
+          order_from_status: fromStatus ?? undefined,
           order_to_status: order.status,
           vars: {
             customer_name: [order.name, order.surname].filter(Boolean).join(' '),
@@ -578,7 +616,7 @@ async function upsertOneOrder(
             shipping_company: order.shipping_company ?? '',
             shipping_guide: order.shipping_guide ?? '',
             to_status: order.status,
-            from_status: existing.status,
+            from_status: fromStatus ?? '',
           },
         },
       })
@@ -691,6 +729,7 @@ export async function backfillAccountDropiOrders(
           neverNotifyStatuses: [],
           pipeline,
           nicheTagBySku,
+          notifySince: null,
           deliveredStatuses,
           lostStatuses,
         })

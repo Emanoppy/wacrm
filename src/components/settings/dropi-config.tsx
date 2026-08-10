@@ -25,6 +25,22 @@ import { useTranslations } from 'next-intl';
 
 const MASKED_KEY = '••••••••••••••••';
 
+/** ISO (UTC, from the API) -> the local-time value `<input type="datetime-local">` expects. */
+function isoToLocalInput(iso: string | null | undefined): string {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/** The `<input type="datetime-local">` value (local time, no timezone) -> ISO for the API. */
+function localInputToIso(value: string): string | null {
+  if (!value) return null;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? null : d.toISOString();
+}
+
 /**
  * Toggle-pill picker built from the account's OWN observed order
  * statuses (same query pattern as DropiPipelineConfig's mapping table)
@@ -102,6 +118,7 @@ export function DropiConfig() {
   const [confirmedStatuses, setConfirmedStatuses] = useState<string[]>([]);
   const [deliveredStatuses, setDeliveredStatuses] = useState<string[]>([]);
   const [lostStatuses, setLostStatuses] = useState<string[]>([]);
+  const [notifySince, setNotifySince] = useState('');
   const [orderStatuses, setOrderStatuses] = useState<string[]>([]);
   const [loadingOrderStatuses, setLoadingOrderStatuses] = useState(false);
   const [defaultShippingCost, setDefaultShippingCost] = useState('');
@@ -129,6 +146,7 @@ export function DropiConfig() {
         setConfirmedStatuses(data.confirmed_statuses ?? []);
         setDeliveredStatuses(data.delivered_statuses ?? []);
         setLostStatuses(data.lost_statuses ?? []);
+        setNotifySince(isoToLocalInput(data.notify_since));
         setDefaultShippingCost(
           data.default_shipping_cost != null ? String(data.default_shipping_cost) : '',
         );
@@ -188,6 +206,7 @@ export function DropiConfig() {
     confirmed_statuses: confirmedStatuses,
     delivered_statuses: deliveredStatuses,
     lost_statuses: lostStatuses,
+    notify_since: localInputToIso(notifySince),
     default_shipping_cost: defaultShippingCost.trim() ? Number(defaultShippingCost) : null,
     pipeline_id: pipelineId,
     status_stage_map: statusStageMap,
@@ -254,6 +273,7 @@ export function DropiConfig() {
         setConfirmedStatuses([]);
         setDeliveredStatuses([]);
         setLostStatuses([]);
+        setNotifySince('');
         setDefaultShippingCost('');
         setPipelineId(null);
         setStatusStageMap({});
@@ -399,6 +419,41 @@ export function DropiConfig() {
                 </Link>
               </p>
             )}
+
+            <div className="space-y-2">
+              <Label htmlFor="dropi-notify-since">{t('notifySince')}</Label>
+              <p className="text-xs text-muted-foreground">{t('notifySinceDesc')}</p>
+              <div className="flex gap-2">
+                <Input
+                  id="dropi-notify-since"
+                  type="datetime-local"
+                  value={notifySince}
+                  onChange={(e) => setNotifySince(e.target.value)}
+                  disabled={disabled || !notifyEnabled}
+                  className="w-56"
+                />
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setNotifySince(isoToLocalInput(new Date().toISOString()))}
+                  disabled={disabled || !notifyEnabled}
+                >
+                  {t('notifySinceUseNow')}
+                </Button>
+                {notifySince && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setNotifySince('')}
+                    disabled={disabled || !notifyEnabled}
+                  >
+                    {t('notifySinceClear')}
+                  </Button>
+                )}
+              </div>
+            </div>
 
             <div className="space-y-2">
               <Label>{t('neverNotifyStatuses')}</Label>
