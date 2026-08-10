@@ -14,11 +14,14 @@
 // when notifications are on — a cancelled order isn't a "keep the
 // customer informed" moment.
 //
-// Notifications only fire on a status CHANGE to an order we already
-// had, never on the first sync of a brand-new row. Otherwise turning
-// this on for the first time would blast a message to every
-// historical customer at once — exactly the kind of accidental mass
-// message an operator would not want.
+// Notifications fire on a status CHANGE to an order we already had,
+// OR on the first sync of a brand-new row IF it was created in Dropi
+// at/after dropi_config.notify_since (migration 046) — otherwise
+// turning this on for the first time (or a stale order falling back
+// into view) would blast a message to every historical customer at
+// once, which an operator would not want. notify_since defaults to
+// NULL, which preserves that fully-safe "never on first sight" default
+// until the account explicitly opts in from Settings → Dropi.
 //
 // Phase 1 change (see ROADMAP.md): the actual message send used to be
 // a single hardcoded WhatsApp template (`notify_template_name`). It's
