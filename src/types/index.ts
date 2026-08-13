@@ -462,6 +462,11 @@ export type AutomationStepType =
   | 'assign_conversation'
   | 'update_contact_field'
   | 'create_deal'
+  /** Moves the deal linked to the triggering order/contact to a
+   *  different pipeline stage — unlike create_deal, never creates a
+   *  new deal. See ConditionSubject 'order_field' doc for why this
+   *  exists separately from writing to `orders.status` directly. */
+  | 'move_deal_stage'
   | 'wait'
   | 'condition'
   | 'send_webhook'
@@ -574,14 +579,47 @@ export type ConditionSubject =
   | 'contact_field'
   | 'tag_presence'
   | 'message_content'
-  | 'time_of_day';
+  | 'time_of_day'
+  /** A column on the order tied to this event — `context.order_id` when
+   *  the trigger already carries one (order_status_changed), otherwise
+   *  the contact's most recently synced order. `operand` is the column
+   *  name (e.g. 'status', 'total_order', 'city'). Lets an automation
+   *  branch on "is this order COD?" once that field is mapped, or
+   *  "total_order > X" via the greater_than operator. */
+  | 'order_field';
+
+/**
+ * Generic comparison applied to whatever `subject` resolves to.
+ * Optional for backward compatibility — steps saved before this existed
+ * have no `operator` and fall back to each subject's original fixed
+ * comparison (tag_presence: exists: contact_field/message_content:
+ * equals/contains; see evaluateCondition in engine.ts).
+ */
+export type ConditionOperator =
+  | 'equals'
+  | 'not_equals'
+  | 'contains'
+  | 'not_contains'
+  | 'greater_than'
+  | 'less_than'
+  | 'is_empty'
+  | 'is_not_empty';
 
 export interface ConditionStepConfig {
   subject: ConditionSubject;
-  /** e.g. field name, tag id, substring, or "HH:mm-HH:mm" depending on subject */
+  /** e.g. field name, tag id, substring, "HH:mm-HH:mm", or an order
+   *  column name — depending on subject */
   operand?: string;
-  /** For contact_field equals / message_content contains — comparison value */
+  /** Comparison operator. Omitted = subject's legacy default. */
+  operator?: ConditionOperator;
+  /** Comparison target for equals/not_equals/contains/not_contains/
+   *  greater_than/less_than. Unused for is_empty/is_not_empty. */
   value?: string;
+}
+
+export interface MoveDealStageStepConfig {
+  pipeline_id: string;
+  stage_id: string;
 }
 
 export interface SendWebhookStepConfig {
@@ -599,6 +637,7 @@ export type AutomationStepConfig =
   | AssignConversationStepConfig
   | UpdateContactFieldStepConfig
   | CreateDealStepConfig
+  | MoveDealStageStepConfig
   | WaitStepConfig
   | ConditionStepConfig
   | SendWebhookStepConfig

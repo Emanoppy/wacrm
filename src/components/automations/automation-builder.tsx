@@ -23,6 +23,7 @@ import {
   UserCheck,
   PencilLine,
   Briefcase,
+  ArrowRightLeft,
   Hourglass,
   GitBranch,
   Webhook,
@@ -108,6 +109,7 @@ const STEP_META: Record<AutomationStepType, StepMeta> = {
   assign_conversation: { label: "assign_conversation", icon: UserCheck, border: "border-l-primary" },
   update_contact_field: { label: "update_contact_field", icon: PencilLine, border: "border-l-primary" },
   create_deal: { label: "create_deal", icon: Briefcase, border: "border-l-primary" },
+  move_deal_stage: { label: "move_deal_stage", icon: ArrowRightLeft, border: "border-l-primary" },
   wait: { label: "wait", icon: Hourglass, border: "border-l-border" },
   condition: { label: "condition", icon: GitBranch, border: "border-l-amber-500" },
   send_webhook: { label: "send_webhook", icon: Webhook, border: "border-l-primary" },
@@ -124,6 +126,7 @@ const ADDABLE_STEPS: AutomationStepType[] = [
   "assign_conversation",
   "update_contact_field",
   "create_deal",
+  "move_deal_stage",
   "wait",
   "condition",
   "send_webhook",
@@ -182,10 +185,12 @@ function blankConfig(type: AutomationStepType): Record<string, unknown> {
       return { field: "name", value: "" }
     case "create_deal":
       return { pipeline_id: "", stage_id: "", title: "", value: 0 }
+    case "move_deal_stage":
+      return { pipeline_id: "", stage_id: "" }
     case "wait":
       return { amount: 1, unit: "hours" }
     case "condition":
-      return { subject: "tag_presence", operand: "", value: "" }
+      return { subject: "tag_presence", operand: "", operator: "", value: "" }
     case "send_webhook":
       return { url: "", headers: {}, body_template: "" }
     case "close_conversation":
@@ -1588,6 +1593,15 @@ function StepEditor({
           </FieldBlock>
         </>
       )
+    case "move_deal_stage":
+      return (
+        <DealPipelineFields
+          pipelineId={(cfg.pipeline_id as string) ?? ""}
+          stageId={(cfg.stage_id as string) ?? ""}
+          onChange={(patch) => set(patch)}
+          t={t}
+        />
+      )
     case "wait":
       return (
         <div className="grid grid-cols-2 gap-2">
@@ -1624,6 +1638,7 @@ function StepEditor({
             >
               <option value="tag_presence">{t("config.subjects.tag_presence")}</option>
               <option value="contact_field">{t("config.subjects.contact_field")}</option>
+              <option value="order_field">{t("config.subjects.order_field")}</option>
               <option value="message_content">{t("config.subjects.message_content")}</option>
               <option value="time_of_day">{t("config.subjects.time_of_day")}</option>
             </select>
@@ -1635,6 +1650,8 @@ function StepEditor({
                   ? t("config.placeholderTime")
                   : cfg.subject === "contact_field"
                   ? t("config.placeholderContact")
+                  : cfg.subject === "order_field"
+                  ? t("config.placeholderOrderField")
                   : cfg.subject === "tag_presence"
                   ? t("config.placeholderTag")
                   : ""
@@ -1644,14 +1661,36 @@ function StepEditor({
               className="bg-muted text-foreground"
             />
           </FieldBlock>
-          {(cfg.subject === "contact_field" || cfg.subject === "message_content") && (
-            <FieldBlock label="Value">
-              <Input
-                value={(cfg.value as string) ?? ""}
-                onChange={(e) => set({ value: e.target.value })}
-                className="bg-muted text-foreground"
-              />
-            </FieldBlock>
+          {(cfg.subject === "contact_field" ||
+            cfg.subject === "order_field" ||
+            cfg.subject === "message_content") && (
+            <>
+              <FieldBlock label={t("config.operatorLabel")}>
+                <select
+                  value={(cfg.operator as string) ?? "equals"}
+                  onChange={(e) => set({ operator: e.target.value })}
+                  className="w-full rounded-md border border-border bg-muted px-2 py-1.5 text-sm text-foreground"
+                >
+                  <option value="equals">{t("config.operators.equals")}</option>
+                  <option value="not_equals">{t("config.operators.not_equals")}</option>
+                  <option value="contains">{t("config.operators.contains")}</option>
+                  <option value="not_contains">{t("config.operators.not_contains")}</option>
+                  <option value="greater_than">{t("config.operators.greater_than")}</option>
+                  <option value="less_than">{t("config.operators.less_than")}</option>
+                  <option value="is_empty">{t("config.operators.is_empty")}</option>
+                  <option value="is_not_empty">{t("config.operators.is_not_empty")}</option>
+                </select>
+              </FieldBlock>
+              {cfg.operator !== "is_empty" && cfg.operator !== "is_not_empty" && (
+                <FieldBlock label={t("config.valueLabel")}>
+                  <Input
+                    value={(cfg.value as string) ?? ""}
+                    onChange={(e) => set({ value: e.target.value })}
+                    className="bg-muted text-foreground"
+                  />
+                </FieldBlock>
+              )}
+            </>
           )}
         </>
       )
@@ -1713,6 +1752,8 @@ function previewFor(step: BuilderStep): string {
       return `${step.step_config.amount ?? "?"} ${step.step_config.unit ?? ""}`
     case "condition":
       return `when ${step.step_config.subject ?? "?"}`
+    case "move_deal_stage":
+      return step.step_config.stage_id ? "move to stage" : "pick a stage"
     case "send_webhook":
       return (step.step_config.url as string) || "no url"
     default:

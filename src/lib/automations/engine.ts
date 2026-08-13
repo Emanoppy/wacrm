@@ -3,6 +3,7 @@ import type {
   AutomationLogStepResult,
   AutomationStep,
   AutomationTriggerType,
+  ConditionOperator,
   ConditionStepConfig,
   KeywordMatchTriggerConfig,
   InteractiveReplyTriggerConfig,
@@ -17,6 +18,7 @@ import type {
   UpdateContactFieldStepConfig,
   WaitStepConfig,
   CreateDealStepConfig,
+  MoveDealStageStepConfig,
   AssignConversationStepConfig,
 } from '@/types'
 import { supabaseAdmin } from './admin-client'
@@ -610,6 +612,49 @@ async function runStep(step: AutomationStep, args: ExecuteArgs): Promise<string>
       return 'deal created'
     }
 
+    case 'move_deal_stage': {
+      const cfg = step.step_config as MoveDealStageStepConfig
+      if (!cfg.pipeline_id || !cfg.stage_id) throw new Error('move_deal_stage needs pipeline + stage')
+
+      // Resolve which deal to move: prefer the order already in context
+      // (order_status_changed carries order_id) — its deal_id was set by
+      // the Dropi sync when the order first entered a mapped stage. Fall
+      // back to the contact's most recently touched deal in this same
+      // pipeline for triggers with no order in context (e.g. the customer
+      // tapped "CONFIRMAR" — an interactive_reply, not an order event).
+      let dealId: string | null = null
+      if (args.context.order_id) {
+        const { data: order } = await db
+          .from('orders')
+          .select('deal_id')
+          .eq('id', args.context.order_id)
+          .eq('account_id', args.automation.account_id)
+          .maybeSingle()
+        dealId = (order?.deal_id as string | null) ?? null
+      }
+      if (!dealId && args.contactId) {
+        const { data: deal } = await db
+          .from('deals')
+          .select('id')
+          .eq('account_id', args.automation.account_id)
+          .eq('contact_id', args.contactId)
+          .eq('pipeline_id', cfg.pipeline_id)
+          .order('updated_at', { ascending: false })
+          .limit(1)
+          .maybeSingle()
+        dealId = (deal?.id as string | null) ?? null
+      }
+      if (!dealId) throw new Error('move_deal_stage: no deal found to move')
+
+      const { error: moveErr } = await db
+        .from('deals')
+        .update({ stage_id: cfg.stage_id, updated_at: new Date().toISOString() })
+        .eq('id', dealId)
+        .eq('account_id', args.automation.account_id)
+      if (moveErr) throw new Error(`move_deal_stage failed: ${moveErr.message}`)
+      return `deal ${dealId} moved to stage ${cfg.stage_id}`
+    }
+
     case 'send_webhook': {
       const cfg = step.step_config as SendWebhookStepConfig
       if (!cfg.url) throw new Error('send_webhook needs url')
@@ -771,6 +816,50 @@ export function triggerMatches(automation: Automation, ctx: AutomationContext | 
   return true
 }
 
+/**
+ * Applies a generic operator to a resolved subject value. Shared by every
+ * subject that resolves to a plain value (contact_field, order_field,
+ * message_content) — tag_presence and time_of_day keep their own
+ * special-cased boolean logic below, since "operator" doesn't map cleanly
+ * onto "does this tag exist" or "is now inside this time window".
+ *
+ * `resolved` is `undefined` when the subject was absent entirely (no such
+ * order/contact field, no var) — distinct from an empty string, so
+ * is_empty/is_not_empty can tell "field doesn't exist" and "field exists
+ * but is blank" apart from a populated value.
+ */
+function applyOperator(
+  resolved: unknown,
+  operator: ConditionOperator,
+  compareValue: string,
+): boolean {
+  const isEmpty = resolved == null || String(resolved).trim() === ''
+  switch (operator) {
+    case 'is_empty':
+      return isEmpty
+    case 'is_not_empty':
+      return !isEmpty
+    case 'equals':
+      return !isEmpty && String(resolved) === compareValue
+    case 'not_equals':
+      return isEmpty || String(resolved) !== compareValue
+    case 'contains':
+      return !isEmpty && String(resolved).toLowerCase().includes(compareValue.toLowerCase())
+    case 'not_contains':
+      return isEmpty || !String(resolved).toLowerCase().includes(compareValue.toLowerCase())
+    case 'greater_than': {
+      const n = Number(resolved)
+      return Number.isFinite(n) && n > Number(compareValue)
+    }
+    case 'less_than': {
+      const n = Number(resolved)
+      return Number.isFinite(n) && n < Number(compareValue)
+    }
+    default:
+      return false
+  }
+}
+
 async function evaluateCondition(cfg: ConditionStepConfig, args: ExecuteArgs): Promise<boolean> {
   const db = supabaseAdmin()
   switch (cfg.subject) {
@@ -784,7 +873,12 @@ async function evaluateCondition(cfg: ConditionStepConfig, args: ExecuteArgs): P
         .select('id', { count: 'exact', head: true })
         .eq('contact_id', args.contactId)
         .eq('tag_id', cfg.operand)
-      return (count ?? 0) > 0
+      const present = (count ?? 0) > 0
+      // No operator saved (steps created before operators existed) keeps
+      // the original "does it exist" semantics; an explicit operator lets
+      // a builder invert it (not_equals/is_empty -> "tag absent").
+      if (!cfg.operator) return present
+      return applyOperator(present ? 'true' : '', cfg.operator, cfg.value ?? 'true')
     }
     case 'contact_field': {
       if (!args.contactId || !cfg.operand) return false
@@ -797,11 +891,31 @@ async function evaluateCondition(cfg: ConditionStepConfig, args: ExecuteArgs): P
         .eq('account_id', args.automation.account_id)
         .maybeSingle()
       const v = (data as Record<string, unknown> | null)?.[cfg.operand]
-      return v != null && String(v) === String(cfg.value ?? '')
+      return applyOperator(v, cfg.operator ?? 'equals', cfg.value ?? '')
+    }
+    case 'order_field': {
+      if (!cfg.operand) return false
+      // Prefer the order already carried by the trigger (order_status_changed).
+      // Other triggers (e.g. the customer tapping a reply button) have no
+      // order in context, so fall back to this contact's most recently
+      // synced order — "the order this conversation is presumably about".
+      let orderQuery = db
+        .from('orders')
+        .select(cfg.operand)
+        .eq('account_id', args.automation.account_id)
+      orderQuery = args.context.order_id
+        ? orderQuery.eq('id', args.context.order_id)
+        : args.contactId
+          ? orderQuery.eq('contact_id', args.contactId).order('last_synced_at', { ascending: false }).limit(1)
+          : orderQuery.eq('id', '00000000-0000-0000-0000-000000000000') // no order_id and no contact — resolve to nothing
+      const { data } = await orderQuery.maybeSingle()
+      const v = (data as Record<string, unknown> | null)?.[cfg.operand]
+      return applyOperator(v, cfg.operator ?? 'equals', cfg.value ?? '')
     }
     case 'message_content': {
       const text = (args.context.message_text ?? '').toString()
-      return text.toLowerCase().includes((cfg.value ?? '').toLowerCase())
+      if (!cfg.operator) return text.toLowerCase().includes((cfg.value ?? '').toLowerCase())
+      return applyOperator(text, cfg.operator, cfg.value ?? '')
     }
     case 'time_of_day': {
       // operand form "HH:mm-HH:mm" — true if now is within that window
