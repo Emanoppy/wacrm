@@ -7,7 +7,7 @@
 > cualquiera (humano o IA) entienda en qué estado quedó todo sin tener
 > que reconstruir el contexto desde cero.
 
-**Última actualización:** 2026-08-10
+**Última actualización:** 2026-08-13
 **Repo:** fork de `ArnasDon/wacrm` en `https://github.com/Emanoppy/wacrm.git`
 **Carpeta local:** `d:\CRM` (ojo: sesiones viejas de este mismo proyecto
 usaban `d:\crm_waza` — esa ruta ya no aplica)
@@ -53,8 +53,7 @@ Las 6 fases del roadmap de Dropi (pedidos, productos + IA, plantillas
 dinámicas, dashboard de rentabilidad, pipeline visual, etiquetado por
 nicho) están **completas** — el detalle técnico de qué se construyó en
 cada una vive en `ROADMAP.md`, no se duplica acá. Migraciones `041` a
-`045` (ver sección 5 — la `045` puede seguir pendiente de aplicar,
-confirmar antes de asumir que ya corrió).
+`046` — todas aplicadas y confirmadas (ver secciones 5 y 5.2).
 
 ## 4. Idioma español (i18n)
 
@@ -181,30 +180,128 @@ faltantes/sobrantes).
    una automatización a mitad de un sync en curso sí detiene mensajes
    pendientes de ese mismo run.
 
+## 5.2 Sesión 2026-08-13 — motor de automatizaciones + Agente de IA real + preparación para producción
+
+1. **El prompt del Agente de IA YA NO es el de "EducaBot"** — al
+   revisarlo hoy, alguien (probablemente la sesión del 09/10) ya lo
+   había reemplazado por un prompt extenso y bien escrito, específico
+   para **"Casa Nova Market"** (el nombre real de la tienda, confirmado
+   contra el `shop.name` de un pedido real de Dropi). El punto 4 de la
+   sección 5 sobre EducaBot está **desactualizado** — ya no aplica.
+2. **Bug real encontrado en ese prompt**: describía acciones que el
+   Agente de IA puede ejecutar (crear/modificar/cancelar pedidos,
+   consultar estado logístico en vivo) que **no existen en el código**
+   — `src/lib/ai/` no tiene ningún tool/function-calling conectado, es
+   un generador de texto puro (lee `messages` + la base de
+   conocimiento, nada más — confirmado revisando `context.ts`,
+   `auto-reply.ts`, `generate.ts`). Si se activaba tal cual, el bot
+   podía prometerle a un cliente que algo "ya quedó confirmado/
+   cancelado" sin que fuera cierto. **Arreglo**: se reescribieron las
+   secciones que asumían esas herramientas (4, 9, 25, 27-30, 33, 35)
+   para que el bot registre la solicitud y transfiera a un asesor
+   humano, en vez de afirmar que ya ejecutó algo. Se conservó ~90% del
+   prompt original (tono, reglas de precio/catálogo/objeciones, todo
+   estaba bien). Guardado en `ai_configs.system_prompt`.
+   **`auto_reply_enabled` sigue en `false`** — no reactivar sin probar
+   primero en una conversación propia.
+3. **Se completó el motor de Automatizaciones con 3 piezas que
+   faltaban** (encontradas al auditar el motor contra un flujo real:
+   "pedido creado → ¿contraentrega? → confirmar → mover pipeline"):
+   - **Operadores genéricos** en condiciones (`equals`, `not_equals`,
+     `contains`, `not_contains`, `greater_than`, `less_than`,
+     `is_empty`, `is_not_empty`) — antes cada `subject` traía una sola
+     comparación fija sin poder elegirla. `ConditionOperator` en
+     `types/index.ts`, aplicado vía `applyOperator()` en `engine.ts`.
+     Retrocompatible: un `condition` step guardado antes de esto no
+     tiene `operator` y sigue con su comparación fija de siempre.
+   - **Condición sobre el pedido** (`subject: 'order_field'`) — antes
+     una condición solo podía mirar contacto/tag/mensaje/hora, nunca
+     el pedido. Resuelve el pedido desde `context.order_id` (si el
+     trigger es `order_status_changed`) o el más reciente del
+     contacto (para triggers como `interactive_reply`), y evalúa
+     cualquier columna (`status`, `total_order`, `city`...).
+   - **Acción `move_deal_stage`** — antes solo existía `create_deal`
+     (crear). Mueve el deal ya enlazado a otra etapa del pipeline.
+     **Importante, por qué no se hizo escribiendo `orders.status`
+     directamente**: `orders` es un espejo de solo lectura de Dropi
+     (lo llena `sync.ts`, nunca al revés) — un `status` escrito ahí
+     por una automatización se perdería en el siguiente sync. El
+     pipeline sí es dato propio del CRM, por eso "el cliente confirmó"
+     debe vivir ahí, no en `orders`.
+   Todo con `t/lint` en 0 errores, paridad i18n en 0. Builder visual
+   (`automation-builder.tsx`) actualizado con los campos nuevos.
+4. **Migración `046` aplicada y confirmada** (columna `notify_since`
+   existe en `dropi_config`).
+5. **`notify_since` se puso a "ahora"** (2026-08-13T21:27:05Z) —
+   preparación explícita para conectar el token de la tienda real: el
+   historial viejo que se traiga con "Importar historial completo" no
+   va a notificar a nadie (protegido por defecto), pero cualquier
+   pedido genuinamente nuevo desde ese momento en adelante sí.
+6. **⚠️ ESTADO EN VIVO AHORA MISMO — leer antes de tocar nada**:
+   `dropi_config.is_active = true`, `notify_customers_enabled = true`,
+   **las 6 automatizaciones están `is_active: true`**. Todavía
+   apuntando a la clave de integración de **prueba** (cuenta de
+   pruebas del dueño, un solo pedido `#85467467` "Emmanuel R", estado
+   `PENDIENTE`) — **NO** a la tienda real todavía. El dueño pidió
+   conectar ya el token de su tienda oficial; quedó pendiente de que
+   él lo pegue en Configuración → Dropi (o en la conversación para que
+   la IA lo guarde) — no se hizo en esta sesión por falta del valor
+   del token, no por decisión de esperar. **Antes de la próxima
+   sesión, confirmar si ya se conectó el token real o sigue en
+   pruebas**, porque con todo ya encendido, el momento en que se
+   guarde el token real y se sincronice, el sistema empieza a mandar
+   mensajes de verdad.
+7. **Pista para investigar el campo de "contraentrega"** (pendiente,
+   sección 6): el dueño mencionó que probablemente el valor es
+   `"CON RECAUDO"` / `"SIN RECAUDO"` — ese término ya aparece en
+   `client.ts` (`rateType` de `listCitiesByDepartment`, y
+   `EnvioConCobro` de `quoteFreight`), pero no se ha confirmado si el
+   objeto de un pedido (`DropiOrder`/`order.raw`) trae ese mismo dato
+   o algo distinto — falta sacarlo de un pedido real y confirmar antes
+   de construir la condición "¿es contraentrega?" con `order_field`.
+8. **Decisión explícita del dueño**: el botón/flujo de cancelación
+   (tercer botón "Cancelar" en la plantilla de confirmación) queda
+   **fuera de alcance por ahora** — no construir sin que lo pida de
+   nuevo.
+9. **Pedido para una próxima sesión, todavía sin construir**: tabla
+   `order_line_items` (poblada en el sync, para poder elegir productos
+   ya vistos en pedidos reales al crear un producto en `/productos` en
+   vez de escribir el SKU a ciegas — además destraba analítica por
+   producto) + indicador de "escribiendo..." en los envíos del motor
+   (la API de WhatsApp Cloud lo soporta, no investigado a fondo
+   todavía).
+
 ## 6. Pendientes inmediatos (en orden)
 
-1. **Aplicar la migración `046_dropi_notify_since.sql`** en el SQL
-   Editor de Supabase — una sola línea (`ALTER TABLE dropi_config ADD
-   COLUMN IF NOT EXISTS notify_since timestamptz DEFAULT NULL`). Ver
-   sección 5.1 punto 4. (La `045` ya se aplicó y se confirmó.)
-2. **Corregir el `status` de los deals ya existentes** — los 241 deals
+1. **Conectar el token real de la tienda oficial** en Configuración →
+   Dropi (ver sección 5.2 punto 6) — todo lo demás ya está armado y
+   encendido esperando esto. Después: "Importar historial completo"
+   (seguro, nunca notifica) y luego "Sincronizar ahora".
+2. **Confirmar el campo real de contraentrega** en un pedido real
+   (sección 5.2 punto 7) antes de construir la condición `order_field`
+   para "¿es contraentrega?".
+3. **Armar y probar la automatización completa** del ejemplo objetivo
+   (pedido creado → condición → confirmar → `move_deal_stage`) usando
+   las 3 piezas nuevas del motor.
+4. **Probar el Agente de IA** con el prompt nuevo de Casa Nova Market,
+   en una conversación propia del dueño — `auto_reply_enabled` sigue
+   apagado hasta confirmar que responde bien.
+5. **Corregir el `status` de los deals viejos** — los 241 deals
    creados antes del punto 7 de la sección 5 quedaron todos en
-   `'open'`; como el pedido no cambia de estado en Dropi solo por
-   correr el sync de nuevo, hace falta una pasada de corrección única
-   (recalcular `won`/`lost` contra el estado actual de cada pedido).
-   No se automatizó todavía — pendiente de hacer en la próxima sesión.
-3. **Configurar el cron externo** de `/api/dropi/cron` (cada 5-10 min)
+   `'open'`; hace falta una pasada de corrección única (recalcular
+   `won`/`lost` contra el estado actual de cada pedido). No
+   automatizado todavía.
+6. **Configurar el cron externo** de `/api/dropi/cron` (cada 5-10 min)
    — falta: confirmar/generar `AUTOMATION_CRON_SECRET` en las
    variables de entorno de EasyPanel, y apuntar un pinger externo
    (ej. cron-job.org) con el dominio real de producción. Sin esto, la
    sincronización solo corre cuando alguien hace clic en "Sincronizar
-   ahora" manualmente.
-4. **Redactar el prompt real del Agente de IA** (Settings → Agentes de
-   IA) antes de reactivar `auto_reply_enabled` — ver punto 4 de la
-   sección 5. Está pausado a propósito.
-5. Confirmar que "Importar historial completo" (`/orders`) se corrió
-   al menos una vez después de crear el pipeline "Pedidos", para que
-   los pedidos históricos aparezcan en el tablero.
+   ahora" manualmente. Requiere que el dueño actúe en 2 plataformas
+   externas (EasyPanel + cron-job.org), no se puede hacer solo desde
+   el código.
+7. **`order_line_items` + selector de productos en `/productos`** y
+   **indicador de "escribiendo..."** (sección 5.2 punto 9) — pedidos
+   por el dueño, sin construir todavía.
 
 ## 7. Cómo correr esto localmente
 
