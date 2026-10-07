@@ -41,7 +41,45 @@ interface MessageBubbleProps {
   onOpenMedia?: (messageId: string) => void;
 }
 
-function StatusIcon({ status }: { status: Message["status"] }) {
+/**
+ * "[title] — [details]" for a failed message, or null when the row
+ * predates migration 042 / Meta sent no reason. Shared by the status
+ * icon's tooltip and the line under the bubble.
+ */
+/** InteractivePreview with the empty-state labels in the UI language. */
+function LocalizedInteractivePreview({
+  payload,
+}: {
+  payload: NonNullable<Message["interactive_payload"]>;
+}) {
+  const t = useTranslations("Interactive");
+  return (
+    <InteractivePreview
+      payload={payload}
+      labels={{
+        body: t("previewBody"),
+        button: t("previewButton"),
+        menu: t("previewMenu"),
+      }}
+    />
+  );
+}
+
+function failureReason(message: Message): string | null {
+  if (message.status !== "failed" || !message.error_title) return null;
+  return message.error_details
+    ? `${message.error_title} — ${message.error_details}`
+    : message.error_title;
+}
+
+function StatusIcon({
+  status,
+  title,
+}: {
+  status: Message["status"];
+  /** Tooltip for the failed state — Meta's reason, when we have one. */
+  title?: string | null;
+}) {
   switch (status) {
     case "sending":
       return <Clock className="h-3 w-3 text-muted-foreground" />;
@@ -52,7 +90,11 @@ function StatusIcon({ status }: { status: Message["status"] }) {
     case "read":
       return <CheckCheck className="h-3 w-3 text-blue-400" />;
     case "failed":
-      return <XCircle className="h-3 w-3 text-red-400" />;
+      return (
+        <span className="inline-flex" title={title ?? undefined}>
+          <XCircle className="h-3 w-3 text-red-400" />
+        </span>
+      );
     default:
       return null;
   }
@@ -61,10 +103,13 @@ function StatusIcon({ status }: { status: Message["status"] }) {
 function MessageContent({
   message,
   t,
+  isAgent,
   onOpenMedia,
 }: {
   message: Message;
   t: ReturnType<typeof useTranslations>;
+  /** Outbound bubbles sit on the primary fill — badges must invert. */
+  isAgent: boolean;
   onOpenMedia?: (messageId: string) => void;
 }) {
   // Passed to the media bubbles as a no-arg callback; `undefined` when the
@@ -129,16 +174,36 @@ function MessageContent({
       return <MediaDocumentBubble message={message} t={t} />;
 
     case "template":
+      // Templates are almost always outbound, where the bubble fill IS
+      // `primary` — so the old `bg-primary/20 text-primary` chip was
+      // primary-on-primary and invisible. Paired with a null
+      // content_text (issue #483) that rendered a bubble with nothing
+      // in it at all. Invert on the primary fill, and fall back to the
+      // template's name when we have no stored body (legacy rows sent
+      // before the fix).
       return (
         <div>
-          <span className="mb-1 inline-flex items-center gap-1 rounded bg-primary/20 px-1.5 py-0.5 text-[10px] font-medium text-primary">
+          <span
+            className={cn(
+              "mb-1 inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium",
+              isAgent
+                ? "bg-primary-foreground/20 text-primary-foreground"
+                : "bg-primary/20 text-primary",
+            )}
+          >
             <LayoutTemplate className="h-3 w-3" />
             {message.template_name || t("template")}
           </span>
-          {message.content_text && (
+          {message.content_text ? (
             <p className="mt-1 whitespace-pre-wrap break-words text-sm">
               {message.content_text}
             </p>
+          ) : (
+            message.template_name && (
+              <p className="mt-1 break-words text-sm italic opacity-80">
+                {message.template_name}
+              </p>
+            )
           )}
           {message.template_buttons && message.template_buttons.length > 0 && (
             <div className="mt-2 flex flex-col overflow-hidden rounded-md border-t border-white/20">
@@ -177,7 +242,7 @@ function MessageContent({
       //    migration 035 backfilled the column): show the body text plainly —
       //    it is our own message, NOT a customer tap.
       if (message.interactive_payload) {
-        return <InteractivePreview payload={message.interactive_payload} />;
+        return <LocalizedInteractivePreview payload={message.interactive_payload} />;
       }
       if (message.sender_type === "customer") {
         return (
@@ -220,6 +285,7 @@ export function MessageBubble({
 
   const isAgent = message.sender_type === "agent" || message.sender_type === "bot";
   const time = format(new Date(message.created_at), "HH:mm");
+  const failure = isAgent ? failureReason(message) : null;
 
   // Row alignment + width cap are owned by <MessageActions> so its hover
   // group matches the bubble's content area, not the full row.
@@ -245,7 +311,12 @@ export function MessageBubble({
             onPrimary={isAgent}
           />
         )}
-        <MessageContent message={message} t={t} onOpenMedia={onOpenMedia} />
+        <MessageContent
+          message={message}
+          t={t}
+          isAgent={isAgent}
+          onOpenMedia={onOpenMedia}
+        />
         <div
           className={cn(
             "mt-1 flex items-center gap-1",
@@ -277,9 +348,17 @@ export function MessageBubble({
           >
             {time}
           </span>
-          {isAgent && <StatusIcon status={message.status} />}
+          {isAgent && <StatusIcon status={message.status} title={failure} />}
         </div>
       </div>
+      {failure && (
+        <p
+          className="mt-0.5 px-1 text-[10px] leading-tight text-muted-foreground"
+          title={failure}
+        >
+          {t("notDelivered")}: {failure}
+        </p>
+      )}
       {reactions && reactions.length > 0 && onToggleReaction && (
         <MessageReactions
           reactions={reactions}

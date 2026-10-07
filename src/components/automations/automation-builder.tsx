@@ -64,6 +64,15 @@ import {
 import { interactivePayloadPreviewText } from "@/lib/whatsapp/interactive"
 import { extractVariableIndices } from "@/lib/whatsapp/template-validators"
 import { createClient } from "@/lib/supabase/client"
+import {
+  childPath,
+  insertAt,
+  mapAtPath,
+  moveAt,
+  removeAt,
+  type ParentScope,
+  type StepPath,
+} from "@/lib/automations/builder-tree"
 import { cn } from "@/lib/utils"
 
 // ------------------------------------------------------------
@@ -667,7 +676,7 @@ function SendTemplateFields({
       {varIndices.length > 0 && (
         <FieldBlock label={t("templates.variablesLabel")}>
           <div className="space-y-2">
-            <p className="text-[11px] text-muted-foreground">{t("templates.variablesHint")}</p>
+            <p className="text-[11px] text-muted-foreground">{t.raw("templates.variablesHint")}</p>
             <div className="flex flex-wrap gap-1">
               {ORDER_VAR_TOKENS.map((v) => (
                 <button
@@ -756,7 +765,7 @@ export function AutomationBuilder({ initial }: { initial: BuilderInitial }) {
     setSaving(true)
     try {
       const payload = {
-        name: state.name || "Untitled automation",
+        name: state.name || t("untitled"),
         description: state.description || null,
         trigger_type: state.trigger_type,
         trigger_config: state.trigger_config,
@@ -785,7 +794,7 @@ export function AutomationBuilder({ initial }: { initial: BuilderInitial }) {
           body?.issues?.[0]
         if (firstIssue?.message) {
           toast.error(firstIssue.message, {
-            description: firstIssue.path ? `at ${firstIssue.path}` : undefined,
+            description: firstIssue.path ? t("toasts.issueAt", { path: firstIssue.path }) : undefined,
           })
         } else {
           toast.error(body?.error ?? t("toasts.saveFailed"))
@@ -853,7 +862,8 @@ export function AutomationBuilder({ initial }: { initial: BuilderInitial }) {
             />
             <StepList
               steps={state.steps}
-              parentPath={[]}
+              basePath={[]}
+              scope={{ kind: "root" }}
               expandedId={expandedId}
               setExpandedId={setExpandedId}
               updateStep={updateStep}
@@ -943,7 +953,7 @@ function TriggerCard({
             {type === "tag_added" && (
               <div>
                 <label className="mb-1 block text-xs font-medium text-muted-foreground">
-                  Tag
+                  {t("config.tagLabel")}
                 </label>
                 <TagSelect
                   value={(config.tag_id as string) ?? ""}
@@ -958,7 +968,7 @@ function TriggerCard({
                   {t("schedule")}
                 </label>
                 <Input
-                  placeholder="Cron expression or HH:mm"
+                  placeholder={t("schedulePlaceholder")}
                   value={(config.schedule as string) ?? ""}
                   onChange={(e) =>
                     onConfigChange({ ...config, schedule: e.target.value })
@@ -1208,18 +1218,16 @@ function OrderStatusChangedConfig({
 // Step list + card + connectors
 // ------------------------------------------------------------
 
-type ParentScope =
-  | { kind: "root" }
-  | { kind: "branch"; parentCid: string; branch: "yes" | "no" }
-
-type StepPath = (
-  | { kind: "root"; index: number }
-  | { kind: "branch"; parentCid: string; branch: "yes" | "no"; index: number }
-)[]
-
 interface StepListProps {
   steps: BuilderStep[]
-  parentPath: StepPath
+  /**
+   * Path of the step that owns this list — `[]` for the root canvas,
+   * the condition's own path for a branch column. Combined with
+   * `scope` by `childPath` to address each child.
+   */
+  basePath: StepPath
+  /** Which bucket this list reads and writes. */
+  scope: ParentScope
   expandedId: string | null
   setExpandedId: (id: string | null) => void
   updateStep: (path: StepPath, updater: (s: BuilderStep) => BuilderStep) => void
@@ -1229,27 +1237,19 @@ interface StepListProps {
 }
 
 function StepList(props: StepListProps) {
-  const { steps, parentPath, ...rest } = props
-  const parentScope: ParentScope =
-    parentPath.length === 0
-      ? { kind: "root" }
-      : (() => {
-          const last = parentPath[parentPath.length - 1]
-          if (last.kind !== "branch") return { kind: "root" } as const
-          return { kind: "branch", parentCid: last.parentCid, branch: last.branch } as const
-        })()
+  const { steps, basePath, scope, ...rest } = props
 
   return (
-    <div className="flex flex-col items-center">
-      <AddButton onPick={(t) => props.addStepAt(parentScope, 0, t)} />
+    <div className="flex w-full flex-col items-center">
+      <AddButton onPick={(t) => props.addStepAt(scope, 0, t)} />
       {steps.map((step, idx) => (
         <StepRenderer
           key={step.cid}
           step={step}
           index={idx}
           total={steps.length}
-          parentScope={parentScope}
-          parentPath={parentPath}
+          basePath={basePath}
+          scope={scope}
           {...rest}
         />
       ))}
@@ -1261,37 +1261,44 @@ function StepRenderer({
   step,
   index,
   total,
-  parentScope,
-  parentPath,
+  scope,
+  basePath,
   ...props
 }: {
   step: BuilderStep
   index: number
   total: number
-  parentScope: ParentScope
-  parentPath: StepPath
-} & Omit<StepListProps, "steps" | "parentPath">) {
+  scope: ParentScope
+  basePath: StepPath
+} & Omit<StepListProps, "steps" | "basePath" | "scope">) {
   const t = useTranslations("Automations.builder")
-  const path: StepPath = [
-    ...parentPath,
-    parentScope.kind === "root"
-      ? { kind: "root", index }
-      : { kind: "branch", parentCid: parentScope.parentCid, branch: parentScope.branch, index },
-  ]
+  const path = childPath(basePath, scope, index)
   const meta = STEP_META[step.step_type]
   const Icon = meta.icon
   const expanded = props.expandedId === step.cid
   const isCondition = step.step_type === "condition"
+  const nested = basePath.length > 0
   // Card widths on mobile fill the full canvas column (max-w-2xl px-4
-  // still keeps them reasonable). On sm+ the original fixed widths
-  // come back so the flow visual stays recognisable.
-  const width = isCondition
-    ? "w-full max-w-[400px] sm:w-[400px]"
-    : "w-full max-w-[320px] sm:w-80"
+  // still keeps them reasonable). On sm+ fixed widths come back so the
+  // flow visual stays recognisable — but only at the top level: a
+  // branch column is a fraction of its condition's width, so a 320px
+  // card inside one overflowed its own column and dragged the editor's
+  // controls out of reach (issue #474). Nested cards fill the column
+  // they were given instead.
+  //
+  // A condition is wider than a plain step because it has to hold two
+  // branch columns side by side; 600px (the canvas is max-w-2xl, i.e.
+  // 640px of content) leaves each branch ~294px — near enough to the
+  // 320px a step gets at the top level for the same editors to fit.
+  const width = nested
+    ? "w-full"
+    : isCondition
+      ? "w-full max-w-[600px] sm:w-[600px]"
+      : "w-full max-w-[320px] sm:w-80"
 
   return (
     <>
-      <div className={cn("z-10 flex flex-col", width)}>
+      <div className={cn("z-10 flex min-w-0 flex-col", width)}>
         <div
           className={cn(
             "rounded-lg border border-border border-l-4 bg-card shadow-lg",
@@ -1309,10 +1316,10 @@ function StepRenderer({
             </div>
             <div className="min-w-0 flex-1">
               <div className="text-[11px] uppercase tracking-wide text-muted-foreground">
-                {isCondition ? "Condition" : step.step_type === "wait" ? "Wait" : "Action"}
+                {isCondition ? t("kindCondition") : step.step_type === "wait" ? t("kindWait") : t("kindAction")}
               </div>
               <div className="truncate text-sm font-medium text-foreground">{t(`steps.${meta.label}`)}</div>
-              <div className="truncate text-[11px] text-muted-foreground">{previewFor(step)}</div>
+              <div className="truncate text-[11px] text-muted-foreground">{previewFor(step, t)}</div>
             </div>
             <ChevronDown
               className={cn("h-4 w-4 text-muted-foreground transition-transform", expanded && "rotate-180")}
@@ -1330,7 +1337,7 @@ function StepRenderer({
                     variant="ghost"
                     size="icon"
                     disabled={index === 0}
-                    aria-label="Move up"
+                    aria-label={t("moveUp")}
                     onClick={() => props.moveStepAt(path, -1)}
                   >
                     <ArrowUp className="h-4 w-4" />
@@ -1339,7 +1346,7 @@ function StepRenderer({
                     variant="ghost"
                     size="icon"
                     disabled={index === total - 1}
-                    aria-label="Move down"
+                    aria-label={t("moveDown")}
                     onClick={() => props.moveStepAt(path, 1)}
                   >
                     <ArrowDown className="h-4 w-4" />
@@ -1351,7 +1358,7 @@ function StepRenderer({
                   onClick={() => props.deleteStepAt(path)}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
-                  {t("delete", { defaultValue: "Delete" })}
+                  {t("delete")}
                 </Button>
               </div>
             </div>
@@ -1359,7 +1366,7 @@ function StepRenderer({
         </div>
 
         {isCondition && (
-          <ConditionBranches step={step} parentPath={path} {...props} />
+          <ConditionBranches step={step} path={path} {...props} />
         )}
       </div>
 
@@ -1367,9 +1374,7 @@ function StepRenderer({
           ConditionBranches), so it has no linear "continue" path — adding
           the trailing connector here would produce a spurious third output. */}
       {!isCondition && (
-        <AddButton
-          onPick={(t) => props.addStepAt(parentScope, index + 1, t)}
-        />
+        <AddButton onPick={(t) => props.addStepAt(scope, index + 1, t)} />
       )}
     </>
   )
@@ -1377,37 +1382,40 @@ function StepRenderer({
 
 function ConditionBranches({
   step,
-  parentPath,
+  path,
   ...props
 }: {
   step: BuilderStep
-  parentPath: StepPath
-} & Omit<StepListProps, "steps" | "parentPath">) {
+  /** The condition's OWN path. Children hang off it, one marker each. */
+  path: StepPath
+} & Omit<StepListProps, "steps" | "basePath" | "scope">) {
   const t = useTranslations("Automations.builder")
   const yes = step.branches?.yes ?? []
   const no = step.branches?.no ?? []
-  // Build the child scope by appending a branch marker. The scope the
-  // StepList uses is driven by the LAST element of parentPath, so the
-  // tail's `index` doesn't matter — it's replaced per child during walks.
-  const yesPath: StepPath = [
-    ...parentPath,
-    { kind: "branch", parentCid: step.cid, branch: "yes", index: 0 },
-  ]
-  const noPath: StepPath = [
-    ...parentPath,
-    { kind: "branch", parentCid: step.cid, branch: "no", index: 0 },
-  ]
   return (
-    // Stack Yes/No vertically on mobile — two columns at 375px would
-    // cram each branch to ~170px which is too narrow for the nested
-    // cards. Two-column grid returns on sm+.
-    <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-      <BranchColumn label={t("branches.yes")} color="text-primary">
-        <StepList {...props} steps={yes} parentPath={yesPath} />
-      </BranchColumn>
-      <BranchColumn label={t("branches.no")} color="text-rose-400">
-        <StepList {...props} steps={no} parentPath={noPath} />
-      </BranchColumn>
+    // Stack Yes/No vertically until THIS CARD is wide enough for two
+    // columns. A viewport breakpoint can't tell: a condition nested in
+    // a branch is a fraction of the screen, and `sm:grid-cols-2` split
+    // it anyway, leaving two columns too narrow to render a step in.
+    <div className="@container mt-3 w-full">
+      <div className="grid grid-cols-1 gap-3 @sm:grid-cols-2">
+        <BranchColumn label={t("branches.yes")} color="text-primary">
+          <StepList
+            {...props}
+            steps={yes}
+            basePath={path}
+            scope={{ kind: "branch", parentCid: step.cid, branch: "yes" }}
+          />
+        </BranchColumn>
+        <BranchColumn label={t("branches.no")} color="text-rose-400">
+          <StepList
+            {...props}
+            steps={no}
+            basePath={path}
+            scope={{ kind: "branch", parentCid: step.cid, branch: "no" }}
+          />
+        </BranchColumn>
+      </div>
     </div>
   )
 }
@@ -1422,7 +1430,7 @@ function BranchColumn({
   children: React.ReactNode
 }) {
   return (
-    <div className="flex flex-col items-center">
+    <div className="flex min-w-0 flex-col items-center">
       <div className={cn("mb-2 text-[11px] font-semibold uppercase", color)}>{label}</div>
       {children}
     </div>
@@ -1493,13 +1501,38 @@ function StepEditor({
     case "send_list":
       // The whole step_config IS the interactive payload; the shared
       // builder edits it in place (and enforces Meta's limits + preview).
+      // `wait_for_reply` rides on the step_config beside the payload. The
+      // composer rebuilds the payload from scratch when switching between
+      // buttons and list, so re-attach it on every change.
       return (
-        <InteractiveBuilder
-          value={asInteractive(cfg)}
-          onChange={(payload) =>
-            onChange({ ...step, step_config: toStepConfig(payload) })
-          }
-        />
+        <>
+          <InteractiveBuilder
+            value={asInteractive(cfg)}
+            onChange={(payload) =>
+              onChange({
+                ...step,
+                step_config: {
+                  ...toStepConfig(payload),
+                  ...(cfg.wait_for_reply ? { wait_for_reply: true } : {}),
+                },
+              })
+            }
+          />
+          <label className="flex items-start gap-2 text-xs text-foreground">
+            <input
+              type="checkbox"
+              checked={cfg.wait_for_reply === true}
+              onChange={(e) => set({ wait_for_reply: e.target.checked })}
+              className="mt-0.5 h-3.5 w-3.5 accent-primary"
+            />
+            <span>
+              {t("config.waitForReply")}
+              <span className="block text-muted-foreground">
+                {t("config.waitForReplyHint")}
+              </span>
+            </span>
+          </label>
+        </>
       )
     case "send_template":
       return (
@@ -1561,7 +1594,7 @@ function StepEditor({
             <Input
               value={(cfg.value as string) ?? ""}
               onChange={(e) => set({ value: e.target.value })}
-              placeholder={t("config.placeholderValue")}
+              placeholder={t.raw("config.placeholderValue")}
               className="bg-muted text-foreground"
             />
           </FieldBlock>
@@ -1739,193 +1772,43 @@ function FieldBlock({
   )
 }
 
-function previewFor(step: BuilderStep): string {
+function previewFor(
+  step: BuilderStep,
+  t: ReturnType<typeof useTranslations>,
+): string {
   switch (step.step_type) {
     case "send_message":
-      return (step.step_config.text as string) || "no text yet"
+      return (step.step_config.text as string) || t("preview.noText")
     case "send_buttons":
-    case "send_list":
-      return interactivePayloadPreviewText(asInteractive(step.step_config)) || "no body yet"
+    case "send_list": {
+      const preview =
+        interactivePayloadPreviewText(asInteractive(step.step_config)) || t("preview.noBody")
+      return step.step_config.wait_for_reply
+        ? t("preview.withWaitForReply", { preview })
+        : preview
+    }
     case "send_template":
-      return (step.step_config.template_name as string) || "pick a template"
-    case "wait":
-      return `${step.step_config.amount ?? "?"} ${step.step_config.unit ?? ""}`
+      return (step.step_config.template_name as string) || t("preview.pickTemplate")
+    case "wait": {
+      const unit = (step.step_config.unit as string | undefined) ?? ""
+      const unitLabel =
+        unit === "minutes" || unit === "hours" || unit === "days"
+          ? t(`preview.units.${unit}`)
+          : unit
+      return t("preview.wait", {
+        amount: String(step.step_config.amount ?? "?"),
+        unit: unitLabel,
+      })
+    }
     case "condition":
-      return `when ${step.step_config.subject ?? "?"}`
+      return t("preview.when", { subject: String(step.step_config.subject ?? "?") })
     case "move_deal_stage":
-      return step.step_config.stage_id ? "move to stage" : "pick a stage"
+      return step.step_config.stage_id ? t("preview.moveToStage") : t("preview.pickStage")
     case "send_webhook":
-      return (step.step_config.url as string) || "no url"
+      return (step.step_config.url as string) || t("preview.noUrl")
     default:
       return ""
   }
-}
-
-// ------------------------------------------------------------
-// Tree mutation helpers
-// ------------------------------------------------------------
-
-function insertAt(
-  steps: BuilderStep[],
-  parent: ParentScope,
-  index: number,
-  node: BuilderStep,
-): BuilderStep[] {
-  if (parent.kind === "root") {
-    const copy = [...steps]
-    copy.splice(index, 0, node)
-    return copy
-  }
-  return steps.map((s) => {
-    if (s.cid !== parent.parentCid || !s.branches) return s
-    const list = [...s.branches[parent.branch]]
-    list.splice(index, 0, node)
-    return { ...s, branches: { ...s.branches, [parent.branch]: list } }
-  })
-}
-
-function mapAtPath(
-  steps: BuilderStep[],
-  path: StepPath,
-  updater: (s: BuilderStep) => BuilderStep,
-): BuilderStep[] {
-  if (path.length === 0) return steps
-  const head = path[0]
-  const rest = path.slice(1)
-
-  if (head.kind === "root") {
-    return steps.map((s, i) => {
-      if (i !== head.index) return s
-      return rest.length === 0
-        ? updater(s)
-        : { ...s, branches: walkBranches(s.branches, rest, updater) }
-    })
-  }
-  return steps.map((s) => {
-    if (s.cid !== head.parentCid || !s.branches) return s
-    const bucket = s.branches[head.branch]
-    const updated = bucket.map((child, i) => {
-      if (i !== head.index) return child
-      return rest.length === 0
-        ? updater(child)
-        : { ...child, branches: walkBranches(child.branches, rest, updater) }
-    })
-    return { ...s, branches: { ...s.branches, [head.branch]: updated } }
-  })
-}
-
-function walkBranches(
-  branches: BuilderStep["branches"],
-  path: StepPath,
-  updater: (s: BuilderStep) => BuilderStep,
-): BuilderStep["branches"] {
-  if (!branches) return branches
-  const head = path[0]
-  if (head.kind !== "branch") return branches
-  const bucket = branches[head.branch]
-  const rest = path.slice(1)
-  const updated = bucket.map((child, i) => {
-    if (i !== head.index) return child
-    return rest.length === 0
-      ? updater(child)
-      : { ...child, branches: walkBranches(child.branches, rest, updater) }
-  })
-  return { ...branches, [head.branch]: updated }
-}
-
-function removeAt(steps: BuilderStep[], path: StepPath): BuilderStep[] {
-  if (path.length === 0) return steps
-  const head = path[0]
-  const rest = path.slice(1)
-  if (head.kind === "root") {
-    if (rest.length === 0) return steps.filter((_, i) => i !== head.index)
-    return steps.map((s, i) =>
-      i !== head.index ? s : { ...s, branches: removeFromBranches(s.branches, rest) },
-    )
-  }
-  return steps.map((s) => {
-    if (s.cid !== head.parentCid || !s.branches) return s
-    const bucket = s.branches[head.branch]
-    const next =
-      rest.length === 0
-        ? bucket.filter((_, i) => i !== head.index)
-        : bucket.map((child, i) =>
-            i !== head.index
-              ? child
-              : { ...child, branches: removeFromBranches(child.branches, rest) },
-          )
-    return { ...s, branches: { ...s.branches, [head.branch]: next } }
-  })
-}
-
-function removeFromBranches(
-  branches: BuilderStep["branches"],
-  path: StepPath,
-): BuilderStep["branches"] {
-  if (!branches) return branches
-  const head = path[0]
-  if (head.kind !== "branch") return branches
-  const rest = path.slice(1)
-  const bucket = branches[head.branch]
-  const next =
-    rest.length === 0
-      ? bucket.filter((_, i) => i !== head.index)
-      : bucket.map((child, i) =>
-          i !== head.index
-            ? child
-            : { ...child, branches: removeFromBranches(child.branches, rest) },
-        )
-  return { ...branches, [head.branch]: next }
-}
-
-function moveAt(
-  steps: BuilderStep[],
-  path: StepPath,
-  direction: -1 | 1,
-): BuilderStep[] {
-  if (path.length === 0) return steps
-  const head = path[0]
-  const rest = path.slice(1)
-  const swap = <T,>(arr: T[], i: number) => {
-    const j = i + direction
-    if (j < 0 || j >= arr.length) return arr
-    const copy = [...arr]
-    ;[copy[i], copy[j]] = [copy[j], copy[i]]
-    return copy
-  }
-  if (head.kind === "root") {
-    if (rest.length === 0) return swap(steps, head.index)
-    return steps.map((s, i) =>
-      i !== head.index ? s : { ...s, branches: moveInBranches(s.branches, rest, direction) },
-    )
-  }
-  return steps.map((s) => {
-    if (s.cid !== head.parentCid || !s.branches) return s
-    const bucket = s.branches[head.branch]
-    const next = rest.length === 0 ? swap(bucket, head.index) : bucket
-    return { ...s, branches: { ...s.branches, [head.branch]: next } }
-  })
-}
-
-function moveInBranches(
-  branches: BuilderStep["branches"],
-  path: StepPath,
-  direction: -1 | 1,
-): BuilderStep["branches"] {
-  if (!branches) return branches
-  const head = path[0]
-  if (head.kind !== "branch") return branches
-  const rest = path.slice(1)
-  const bucket = branches[head.branch]
-  const swap = <T,>(arr: T[], i: number) => {
-    const j = i + direction
-    if (j < 0 || j >= arr.length) return arr
-    const copy = [...arr]
-    ;[copy[i], copy[j]] = [copy[j], copy[i]]
-    return copy
-  }
-  const next = rest.length === 0 ? swap(bucket, head.index) : bucket
-  return { ...branches, [head.branch]: next }
 }
 
 // ------------------------------------------------------------

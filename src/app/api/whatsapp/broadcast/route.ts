@@ -3,7 +3,7 @@ import { requireRole, toErrorResponse } from '@/lib/auth/account'
 import { sendTemplateMessage } from '@/lib/whatsapp/meta-api'
 import { decrypt } from '@/lib/whatsapp/encryption'
 import type { SendTimeParams } from '@/lib/whatsapp/template-send-builder'
-import { isMessageTemplate } from '@/lib/whatsapp/template-row-guard'
+import { resolveTemplateRow } from '@/lib/whatsapp/template-body'
 import {
   sanitizePhoneForMeta,
   isValidE164,
@@ -15,6 +15,9 @@ import {
   rateLimitResponse,
   RATE_LIMITS,
 } from '@/lib/rate-limit'
+import { getT } from '@/lib/i18n/translate'
+
+const t = getT('Api')
 
 interface BroadcastResult {
   phone: string
@@ -107,7 +110,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            'Provide either `recipients` (preferred) or `phone_numbers` — must be a non-empty array',
+            t('broadcast.recipientsRequired'),
         },
         { status: 400 }
       )
@@ -115,7 +118,7 @@ export async function POST(request: Request) {
 
     if (!template_name) {
       return NextResponse.json(
-        { error: 'template_name is required' },
+        { error: t('broadcast.templateNameRequired') },
         { status: 400 }
       )
     }
@@ -130,7 +133,7 @@ export async function POST(request: Request) {
       return NextResponse.json(
         {
           error:
-            'WhatsApp not configured. Please set up your WhatsApp integration first.',
+            t('common.whatsappNotConfiguredSetup'),
         },
         { status: 400 }
       )
@@ -143,23 +146,22 @@ export async function POST(request: Request) {
     // the loop would N+1 against Supabase for every recipient.
     // Guard against a malformed local row crashing every send in
     // the loop with the same opaque TypeError — fail loudly once.
-    const { data: rawTemplateRow } = await supabase
-      .from('message_templates')
-      .select('*')
-      .eq('account_id', accountId)
-      .eq('name', template_name)
-      .eq('language', template_language || 'en_US')
-      .maybeSingle()
-    if (rawTemplateRow && !isMessageTemplate(rawTemplateRow)) {
+    const resolvedTemplate = await resolveTemplateRow(
+      supabase,
+      accountId,
+      template_name,
+      template_language,
+    )
+    if (resolvedTemplate.malformed) {
       return NextResponse.json(
         {
           error:
-            'Template row is malformed locally — run "Sync from Meta" in Settings to repair it before broadcasting.',
+            t('broadcast.templateMalformed'),
         },
         { status: 500 },
       )
     }
-    const templateRow = rawTemplateRow ?? null
+    const templateRow = resolvedTemplate.row
 
     const results: BroadcastResult[] = []
     let sentCount = 0
@@ -172,7 +174,7 @@ export async function POST(request: Request) {
         results.push({
           phone: recipient.phone,
           status: 'failed',
-          error: 'Invalid phone number format',
+          error: t('broadcast.invalidPhoneFormat'),
         })
         failedCount++
         continue
@@ -191,7 +193,7 @@ export async function POST(request: Request) {
             accessToken,
             to: variant,
             templateName: template_name,
-            language: template_language || 'en_US',
+            language: resolvedTemplate.language,
             template: templateRow ?? undefined,
             messageParams: recipient.messageParams,
             params: recipient.params ?? [],
@@ -201,7 +203,7 @@ export async function POST(request: Request) {
           break
         } catch (error) {
           const errorMessage =
-            error instanceof Error ? error.message : 'Unknown error'
+            error instanceof Error ? error.message : t('common.unknownError')
           if (!isRecipientNotAllowedError(errorMessage)) {
             lastError = errorMessage
             break
@@ -226,7 +228,7 @@ export async function POST(request: Request) {
         results.push({
           phone: recipient.phone,
           status: 'failed',
-          error: lastError || 'Unknown error',
+          error: lastError || t('common.unknownError'),
         })
         failedCount++
       }
